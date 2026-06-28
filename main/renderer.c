@@ -96,7 +96,7 @@ static void draw_editor(const Editor *editor)
         16,
         5,
         5,
-        "Tanmatsu Editor v2.0 - System Ready");
+        "Tanmatsu Editor v1.2.1 - System Ready");
 
     // 2. Start the editable text area below the header
     int y = 30; 
