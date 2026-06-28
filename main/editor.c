@@ -32,9 +32,6 @@ void editor_init(Editor *editor)
 
     memset(editor, 0, sizeof(Editor));
 
-    strcpy(editor->text,
-       "Tanmatsu Editor v2.0\nSystem Ready.\n> ");
-
     editor->length = strlen(editor->text);
     editor->cursor = editor->length;
 
