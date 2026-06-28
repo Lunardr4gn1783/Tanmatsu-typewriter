@@ -7,6 +7,14 @@ endif()
 idf_component_register(
 	SRCS
 		"main.c"
+		"app.c"
+		"browser.c"
+        "editor.c"
+        "filesystem.c"
+        "input.c"
+        "renderer.c"
+        "sdcard.c"
+		"crypto.c"
 	PRIV_REQUIRES
 		esp_lcd
 		fatfs
