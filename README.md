@@ -3,7 +3,7 @@
 This is a program designed to provide a nano-like editor for the Tanmatsu. 
 
 # Manual:
-- F2 opens the menu
+- F2 opens the menu (Orange Triangle)
 - Volume up and down scroll pages
 - Arrow keys navigate the file
 
