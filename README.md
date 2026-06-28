@@ -1,8 +1,23 @@
-# Tanmatsu template app project
+# Tanmatsu Typewriter
 
-This template project shows how to build an app for Tanmatsu using the [PAX graphics](https://github.com/robotman2412/pax-graphics/tree/release/1.1.1/docs) library.
+This is a program designed to provide a nano-like editor for the Tanmatsu. 
 
-For more information visit the [documentation website](https://docs.tanmatsu.cloud).
+# Manual:
+- F2 opens the menu
+- Volume up and down scroll pages
+- Arrow keys navigate the file
+
+# Currently it supports:
+- Encryption
+(XOR Encryption, with many more algorithms in the works)
+- Saving and loading of just about any file
+(Yes, even .bin file can be opened, just like any text editor)
+# In Progress:
+Encryption Algorithms:
+- AES 256
+- RSA
+Optimizations:
+- Improve text input and handling
 
 ## License
 
