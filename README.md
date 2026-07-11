@@ -20,9 +20,8 @@ This is a program designed to provide a nano-like editor for the Tanmatsu.
 - install: git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 - run "make prepare" and then "make build"
 ### Controls
-- F2 opens the menu (Orange Triangle)
-- Volume up and down scroll pages
-- Arrow keys navigate the file
+- ESC opens the menu
+- Arrow keys navigate the file/menus
 
 
 
