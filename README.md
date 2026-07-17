@@ -4,14 +4,15 @@ This is a program designed to provide a nano-like editor for the Tanmatsu.
 
 # Currently it supports:
 - Encryption
-(XOR Encryption, with many more algorithms in the works)
 - Saving and loading of just about any file
 (Yes, even .bin file can be opened, just like any text editor)
-# In Progress:
+
 ### Encryption Algorithms:
 - AES 256
 - RSA
 - Serpent
+
+# In Progress:
 ### Optimizations:
 - Improve text input and handling
 # Manual:
