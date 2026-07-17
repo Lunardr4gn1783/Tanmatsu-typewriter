@@ -41,6 +41,11 @@ void app_handle_char(char key)
         {
             editor_backspace(&app.editor);
         } 
+        else if (key == '\t')
+        {
+            for (int i = 0; i < TAB_WIDTH; i++)
+                editor_insert(&app.editor, ' ');
+        }
         else 
         {
             editor_insert(&app.editor, key);

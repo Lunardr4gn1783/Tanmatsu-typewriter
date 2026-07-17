@@ -23,6 +23,9 @@
 /* Maximum text held in memory at one time */
 #define EDITOR_BUFFER_SIZE       2048
 
+/* Number of spaces per tab */
+#define TAB_WIDTH                4
+
 /* Number of bytes loaded per page */
 #define PAGE_SIZE               (EDITOR_BUFFER_SIZE - 1)
 
