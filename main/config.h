@@ -8,7 +8,7 @@
 =========================================================================*/
 
 #define APP_NAME                "Tanmatsu Editor"
-#define APP_VERSION             "1.3.0"
+#define APP_VERSION             "2.0.0"
 
 /*=========================================================================
     Storage
@@ -43,6 +43,8 @@
 =========================================================================*/
 
 #define STATUS_BAR_HEIGHT        20
+
+#define HELP_BAR_HEIGHT          18
 
 #define MENU_ITEM_HEIGHT         20
 

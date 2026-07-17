@@ -429,7 +429,7 @@ bool filesystem_load_encrypted(Filesystem *fs, Editor *editor, const char *passw
         return false;
     }
 
-    // 3. Decrypt
+    // 3. Decrypt — if it fails, fall back to the raw content already in the editor
     if (!crypto_decrypt(
         method,
         (const uint8_t *)editor->text,
@@ -438,9 +438,10 @@ bool filesystem_load_encrypted(Filesystem *fs, Editor *editor, const char *passw
         &out_len,
         password))
     {
-        ESP_LOGE(TAG, "Decryption failed (wrong password or corrupted file?)");
+        ESP_LOGW(TAG, "Decryption failed — showing raw file content");
         free(decrypted);
-        return false;
+        editor_update_status(editor);
+        return true;
     }
 
     // 4. Copy decrypted data back into editor buffer

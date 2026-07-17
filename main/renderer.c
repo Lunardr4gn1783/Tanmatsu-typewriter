@@ -15,8 +15,13 @@ typedef struct
 {
     pax_buf_t fb;
 
+    /* Raw buffer dimensions (portrait 480×800) */
     size_t width;
     size_t height;
+
+    /* Logical dimensions after PAX_O_ROT_CW (landscape 800×480) */
+    int display_w;
+    int display_h;
 
     bsp_display_color_format_t color;
     bsp_display_endianness_t endian;
@@ -37,9 +42,10 @@ static const char* menu_items[] = {
     "Load Text", 
     "Load Encrypted", 
     "Load Hex", 
-    "Back to Editor"
+    "Back to Editor",
+    "Quit to Launcher"
 };
-static const int MENU_ITEM_COUNT = 7;
+static const int MENU_ITEM_COUNT = 8;
 
 /*----------------------------------------------------------*/
 
@@ -70,8 +76,8 @@ static void draw_status_bar(const Editor *editor)
         &renderer.fb,
         COLOR_RED,
         0,
-        renderer.height - STATUS_BAR_HEIGHT,
-        renderer.width,
+        renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT,
+        renderer.display_w,
         STATUS_BAR_HEIGHT);
 
     pax_draw_text(
@@ -80,7 +86,7 @@ static void draw_status_bar(const Editor *editor)
         pax_font_sky_mono,
         16,
         8,
-        renderer.height - STATUS_BAR_HEIGHT + 2,
+        renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT + 2,
         editor->status);
 }
 
@@ -139,8 +145,8 @@ static void draw_editor(const Editor *editor)
             y += LINE_SPACING;
             col = 0;
 
-            // Stop if we hit the bottom of the screen (above the status bar)
-            if (y > renderer.height - STATUS_BAR_HEIGHT - LINE_SPACING)
+            // Stop if we hit the bottom of the screen (above status and help bars)
+            if (y > renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT - LINE_SPACING)
             {
                 break;
             }
@@ -173,41 +179,60 @@ static void renderer_update_cursor_only(const Editor *editor)
     int y = HEADER_HEIGHT + 2;
     int col = 0;
     char line_buf[128];
-    
-    for (size_t i = 0; i < editor->cursor; i++) 
+    int cursor_col = -1;
+
+    /* Find the line containing the cursor, extract the full line */
+    for (size_t i = 0; i <= editor->length; i++)
     {
-        char c = editor->text[i];
-        
-        if (c == '\n' || col >= sizeof(line_buf) - 1) 
+        char c = (i < editor->length) ? editor->text[i] : '\0';
+
+        if (i == editor->cursor)
+            cursor_col = col;
+
+        if (c == '\n' || c == '\0' || col >= (int)sizeof(line_buf) - 1)
         {
+            line_buf[col] = '\0';
+
+            if (cursor_col >= 0)
+                goto found;
+
             y += LINE_SPACING;
             col = 0;
-            line_start_idx = i + 1;
-        } 
-        else 
+        }
+        else
         {
             line_buf[col++] = c;
         }
     }
+    return;
 
-    line_buf[col] = '\0';
+found:
+    /* Clear just this line's row with black background */
+    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, y, renderer.display_w, LINE_SPACING);
+
+    /* Re-render the full line text */
+    pax_draw_text(
+        &renderer.fb,
+        COLOR_WHITE,
+        pax_font_sky_mono,
+        16,
+        5,
+        y,
+        line_buf);
+
+    /* Measure just up to cursor for the cursor_x position */
+    line_buf[cursor_col] = '\0';
     pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line_buf);
-
     int cursor_x = 5 + (int)text_dims.x;
-    int cursor_y = y;
 
-    /* Re-render the text at the cursor position to restore any glyphs
-     * that were obscured by the previous cursor draw */
-    pax_col_t bg = (y / LINE_SPACING) & 1 ? COLOR_BG_ROW1 : COLOR_BG_ROW2;
-    pax_simple_rect(&renderer.fb, bg, cursor_x, cursor_y, CURSOR_WIDTH + 1, FONT_HEIGHT);
-
+    /* Draw cursor overlay */
     if (renderer.cursor_visible)
     {
         pax_simple_rect(
             &renderer.fb,
             COLOR_WHITE,
             cursor_x,
-            cursor_y,
+            y,
             CURSOR_WIDTH,
             FONT_HEIGHT);
     }
@@ -261,7 +286,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
         COLOR_BG_HEADER,
         0,
         0,
-        renderer.width,
+        renderer.display_w,
         HEADER_HEIGHT);
 
     pax_draw_text(
@@ -283,7 +308,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
         fs->current_path);
 
     int visible =
-        (renderer.height - HEADER_HEIGHT) /
+        (renderer.display_h - HEADER_HEIGHT - HELP_BAR_HEIGHT) /
         MENU_ITEM_HEIGHT;
 
     /* Update the browser's visible item count for scroll tracking */
@@ -311,7 +336,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
             bg,
             0,
             y,
-            renderer.width - 10,
+            renderer.display_w - 10,
             MENU_ITEM_HEIGHT);
 
         char text[96];
@@ -344,12 +369,10 @@ static void draw_save_as(const AppContext *context)
     draw_editor(&context->editor);
 
     // Calculate popup dimensions
-    int box_w = 280;
+    int box_w = renderer.display_w - 16;
     int box_h = 70;
-    int box_x = (renderer.width - box_w) / 2;
-    int box_y = (renderer.height - box_h) / 2;
-
-    // Draw an outer border (Blue) and inner background (Black)
+    int box_x = (renderer.display_w - box_w) / 2;
+    int box_y = (renderer.display_h - box_h) / 2;
     pax_simple_rect(&renderer.fb, COLOR_BLUE, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
     pax_simple_rect(&renderer.fb, COLOR_BLACK, box_x, box_y, box_w, box_h);
 
@@ -377,10 +400,10 @@ static void draw_crypto_menu(const AppContext *context)
     draw_editor(&context->editor);
 
     // Dynamic height based on how many ciphers exist in the enum
-    int box_w = 260;
+    int box_w = renderer.display_w - 32;
     int box_h = 40 + (CRYPTO_METHOD_COUNT * MENU_ITEM_HEIGHT);
-    int box_x = (renderer.width - box_w) / 2;
-    int box_y = (renderer.height - box_h) / 2;
+    int box_x = (renderer.display_w - box_w) / 2;
+    int box_y = (renderer.display_h - box_h) / 2;
 
     // Purple border for crypto selection
     pax_simple_rect(&renderer.fb, 0xFF800080, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
@@ -413,10 +436,10 @@ static void draw_password(const AppContext *context)
     // Layer over the editor
     draw_editor(&context->editor);
 
-    int box_w = 280;
+    int box_w = renderer.display_w - 16;
     int box_h = 70;
-    int box_x = (renderer.width - box_w) / 2;
-    int box_y = (renderer.height - box_h) / 2;
+    int box_x = (renderer.display_w - box_w) / 2;
+    int box_y = (renderer.display_h - box_h) / 2;
 
     // Red border indicates security action
     pax_simple_rect(&renderer.fb, COLOR_RED, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
@@ -428,7 +451,7 @@ static void draw_password(const AppContext *context)
         title);
 
     // Generate masked string
-    char masked_display[36]; // 32 chars max + cursor + null
+    char masked_display[36];
     size_t i = 0;
     for (; i < context->password_cursor; i++) 
     {
@@ -444,6 +467,54 @@ static void draw_password(const AppContext *context)
     pax_draw_text(
         &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 35, 
         masked_display);
+}
+
+/*----------------------------------------------------------*/
+
+static void draw_help_bar(const AppContext *context)
+{
+    int bar_y = renderer.display_h - HELP_BAR_HEIGHT;
+
+    pax_simple_rect(
+        &renderer.fb,
+        COLOR_BG_HEADER,
+        0,
+        bar_y,
+        renderer.display_w,
+        HELP_BAR_HEIGHT);
+
+    const char *text = "";
+
+    switch (context->state)
+    {
+        case APP_STATE_EDITOR:
+            text = "ESC:Menu Arr:Move Vol:Pg Meta+Shift:Caps";
+            break;
+        case APP_STATE_MENU:
+            text = "Up/Dn:Nav Enter:Sel ESC:Back";
+            break;
+        case APP_STATE_BROWSER:
+            text = "Up/Dn:Nav Enter:Open ESC:Back";
+            break;
+        case APP_STATE_CRYPTO_SELECT:
+            text = "Up/Dn:Nav Enter:Sel ESC:Back";
+            break;
+        case APP_STATE_SAVE_AS:
+            text = "Enter:Save ESC:Cancel";
+            break;
+        case APP_STATE_PASSWORD:
+            text = "Enter:OK ESC:Cancel";
+            break;
+    }
+
+    pax_draw_text(
+        &renderer.fb,
+        COLOR_WHITE,
+        pax_font_sky_mono,
+        16,
+        8,
+        bar_y + 1,
+        text);
 }
 
 /*----------------------------------------------------------*/
@@ -491,6 +562,9 @@ bool renderer_init(void)
     pax_buf_set_orientation(
         &renderer.fb,
         PAX_O_ROT_CW);
+
+    renderer.display_w = pax_buf_get_width(&renderer.fb);
+    renderer.display_h = pax_buf_get_height(&renderer.fb);
 
     renderer.cursor_visible = true;
 
@@ -554,6 +628,8 @@ void renderer_render(AppContext *context)
             draw_password(context);
             break;
     }
+
+    draw_help_bar(context);
 
     renderer_present_internal();
     

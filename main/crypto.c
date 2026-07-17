@@ -332,7 +332,7 @@ static void serpent_linear_inv(uint32_t s[4])
 /* Key schedule: 256-bit key -> 33 round subkeys (128 bits each) */
 static void serpent_key_schedule(const uint8_t key[32], uint32_t subkeys[33][4])
 {
-    static const uint32_t PHI[132] = {
+    static const uint32_t PHI[144] = {
         0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,
         0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,
         0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,0x9e3779ba,
@@ -679,7 +679,6 @@ static bool rsa_encrypt(const uint8_t *in, size_t in_len,
     {
         size_t chunk_out = RSA_CIPHER_CHUNK;
         ret = mbedtls_rsa_pkcs1_encrypt(rsa, mbedtls_ctr_drbg_random, &drbg,
-                                          MBEDTLS_RSA_PUBLIC,
                                           RSA_PLAIN_CHUNK,
                                           padded + i,
                                           cursor);
@@ -773,7 +772,6 @@ static bool rsa_decrypt(const uint8_t *in, size_t in_len,
     {
         size_t block_len = RSA_PLAIN_CHUNK;
         ret = mbedtls_rsa_pkcs1_decrypt(rsa, mbedtls_ctr_drbg_random, NULL,
-                                          MBEDTLS_RSA_PRIVATE,
                                           &block_len,
                                           ciphertext + i,
                                           decrypted + dec_offset,

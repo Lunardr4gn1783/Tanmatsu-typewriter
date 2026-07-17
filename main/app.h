@@ -57,6 +57,8 @@ typedef struct
 
     bool cursor_visible;
 
+    bool caps_lock;
+
     RedrawType redraw_request;
 
     CryptoMethod selected_cipher;

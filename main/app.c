@@ -2,7 +2,9 @@
 
 #include <string.h>
 #include <stdio.h>
+#include "bsp/device.h"
 #include "bsp/input.h"
+#include "esp_system.h"
 
 /* Secure memory clearing that won't be optimized away */
 static void secure_zero(void *ptr, size_t len)
@@ -107,9 +109,9 @@ void app_handle_nav(uint32_t nav_key)
                 app.menu_selected = 0;
                 app.redraw_request = REDRAW_FULL;
             } 
-            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_F4) 
+            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RETURN)
             {
-                filesystem_save_file(&app.filesystem, &app.editor);
+                editor_insert(&app.editor, '\n');
                 app.redraw_request = REDRAW_FULL;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_LEFT)
@@ -122,11 +124,11 @@ void app_handle_nav(uint32_t nav_key)
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP)
             {
-                if (editor_move_up(&app.editor)) app.redraw_request = REDRAW_CURSOR;
+                if (editor_move_up(&app.editor)) app.redraw_request = REDRAW_FULL;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN)
             {
-                if (editor_move_down(&app.editor)) app.redraw_request = REDRAW_CURSOR;
+                if (editor_move_down(&app.editor)) app.redraw_request = REDRAW_FULL;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_VOLUME_DOWN)
             {
@@ -158,7 +160,7 @@ void app_handle_nav(uint32_t nav_key)
         case APP_STATE_MENU:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN) 
             {
-                if (app.menu_selected < 6) 
+                if (app.menu_selected < 7) 
                 {
                     app.menu_selected++;
                     app.redraw_request = REDRAW_FULL;
@@ -219,6 +221,9 @@ void app_handle_nav(uint32_t nav_key)
                         break;
                     case 6: // Back to Editor
                         app.state = APP_STATE_EDITOR;
+                        break;
+                    case 7: // Quit to Launcher
+                        bsp_device_restart_to_launcher();
                         break;
                 }
                 app.redraw_request = REDRAW_FULL;
