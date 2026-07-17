@@ -10,6 +10,8 @@ void browser_init(Browser *browser)
     }
 
     memset(browser, 0, sizeof(Browser));
+
+    browser->visible_items = 10;
 }
 
 void browser_clear(Browser *browser)
@@ -73,6 +75,11 @@ browser_selected(const Browser *browser)
         return NULL;
     }
 
+    if (browser->selected < 0 || browser->selected >= browser->count)
+    {
+        return NULL;
+    }
+
     return &browser->entries[browser->selected];
 }
 
@@ -111,6 +118,11 @@ bool browser_move_down(Browser *browser)
     }
 
     browser->selected++;
+
+    if (browser->selected >= browser->scroll + browser->visible_items)
+    {
+        browser->scroll++;
+    }
 
     return true;
 }

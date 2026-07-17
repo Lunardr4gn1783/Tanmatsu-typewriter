@@ -246,7 +246,6 @@ main/fat/icons/%.png: main/static/icons/%.svg
 buildall:
 	$(MAKE) build DEVICE=tanmatsu
 	$(MAKE) build DEVICE=konsool
-	$(MAKE) build DEVICE=hackerhotel-2026
 	$(MAKE) build DEVICE=esp32-p4-function-ev-board
 	$(MAKE) build DEVICE=mch2022
 	$(MAKE) build DEVICE=hackerhotel-2024

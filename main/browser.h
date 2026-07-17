@@ -28,6 +28,8 @@ typedef struct
 
     int scroll;
 
+    int visible_items;
+
 } Browser;
 
 

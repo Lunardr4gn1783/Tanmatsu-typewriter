@@ -96,10 +96,10 @@ static void draw_editor(const Editor *editor)
         16,
         5,
         5,
-        "Tanmatsu Editor v1.2.1 - System Ready");
+        "Tanmatsu Editor v" APP_VERSION " - System Ready");
 
     // 2. Start the editable text area below the header
-    int y = 30; 
+    int y = HEADER_HEIGHT + 2; 
     int col = 0;
     char line[128];
 
@@ -170,11 +170,10 @@ static void draw_editor(const Editor *editor)
 
 static void renderer_update_cursor_only(const Editor *editor)
 {
-    int y = 30; // Matches the editable area start height
+    int y = HEADER_HEIGHT + 2;
     int col = 0;
     char line_buf[128];
     
-    // Build the current line up to the cursor
     for (size_t i = 0; i < editor->cursor; i++) 
     {
         char c = editor->text[i];
@@ -183,6 +182,7 @@ static void renderer_update_cursor_only(const Editor *editor)
         {
             y += LINE_SPACING;
             col = 0;
+            line_start_idx = i + 1;
         } 
         else 
         {
@@ -190,29 +190,32 @@ static void renderer_update_cursor_only(const Editor *editor)
         }
     }
 
-    // Null-terminate and measure the string
     line_buf[col] = '\0';
     pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line_buf);
 
     int cursor_x = 5 + (int)text_dims.x;
     int cursor_y = y;
 
-    // Draw EITHER a white box (visible) OR a black box (hidden)
-    pax_col_t cursor_color = renderer.cursor_visible ? COLOR_WHITE : COLOR_BLACK;
-    
-    // Paint just the cursor rectangle directly onto the existing framebuffer
-    pax_simple_rect(
-        &renderer.fb, 
-        cursor_color, 
-        cursor_x, 
-        cursor_y, 
-        CURSOR_WIDTH, 
-        FONT_HEIGHT);
+    /* Re-render the text at the cursor position to restore any glyphs
+     * that were obscured by the previous cursor draw */
+    pax_col_t bg = (y / LINE_SPACING) & 1 ? COLOR_BG_ROW1 : COLOR_BG_ROW2;
+    pax_simple_rect(&renderer.fb, bg, cursor_x, cursor_y, CURSOR_WIDTH + 1, FONT_HEIGHT);
+
+    if (renderer.cursor_visible)
+    {
+        pax_simple_rect(
+            &renderer.fb,
+            COLOR_WHITE,
+            cursor_x,
+            cursor_y,
+            CURSOR_WIDTH,
+            FONT_HEIGHT);
+    }
 }
 
 /*----------------------------------------------------------*/
 
-void renderer_draw_menu(int menu_selected)
+static void renderer_draw_menu(int menu_selected)
 {
     pax_draw_text(
         &renderer.fb,
@@ -282,6 +285,9 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
     int visible =
         (renderer.height - HEADER_HEIGHT) /
         MENU_ITEM_HEIGHT;
+
+    /* Update the browser's visible item count for scroll tracking */
+    ((Browser *)browser)->visible_items = visible;
 
     for (int i = 0; i < visible; i++)
     {

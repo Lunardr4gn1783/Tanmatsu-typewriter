@@ -3,12 +3,14 @@
 #include "driver/gpio.h"
 #include "nvs_flash.h"
 #include "bsp/device.h"
+#include "esp_log.h"
 
-// Your new modular headers
 #include "app.h"
 #include "sdcard.h"
 #include "renderer.h"
 #include "input.h"
+
+static const char *TAG = "main";
 
 void app_main(void) 
 {
@@ -23,9 +25,15 @@ void app_main(void)
     bsp_device_initialize(&bsp_config);
 
     // 3. Tanmatsu Subsystems Init
-    sdcard_init();
-    renderer_init();
-    input_init();
+    if (!sdcard_init()) {
+        ESP_LOGE(TAG, "SD card init failed");
+    }
+    if (!renderer_init()) {
+        ESP_LOGE(TAG, "Renderer init failed");
+    }
+    if (!input_init()) {
+        ESP_LOGE(TAG, "Input init failed");
+    }
     
     // 4. Application Logic Init
     app_init();
@@ -39,7 +47,7 @@ void app_main(void)
         // If a state change requested a redraw, push the frame
         if (app.redraw_request != REDRAW_NONE) 
         {
-        renderer_render(&app);
+            renderer_render(&app);
         }
     }
 }

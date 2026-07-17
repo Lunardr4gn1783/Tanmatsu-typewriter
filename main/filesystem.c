@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -169,6 +170,12 @@ bool filesystem_enter_directory(
         return false;
     }
 
+    if (strlen(new_path) >= DIRECTORY_PATH_LENGTH)
+    {
+        ESP_LOGE(TAG, "Path too long: %s", new_path);
+        return false;
+    }
+
     strncpy(
         fs->current_path,
         new_path,
@@ -306,7 +313,14 @@ bool filesystem_load_file(
     }
 
     editor_clear(editor);
-    fseek(f, fs->file_offset, SEEK_SET);
+
+    if (fseek(f, fs->file_offset, SEEK_SET) != 0)
+    {
+        ESP_LOGE(TAG, "Failed to seek to offset %u in %s",
+            (unsigned)fs->file_offset, fs->active_file);
+        fclose(f);
+        return false;
+    }
 
     if (fs->hex_mode) 
     {
@@ -367,9 +381,23 @@ bool filesystem_save_file(
 
     if (f) 
     {
-        fseek(f, fs->file_offset, SEEK_SET);
-        fwrite(editor->text, 1, editor->length, f);
+        if (fseek(f, fs->file_offset, SEEK_SET) != 0)
+        {
+            ESP_LOGE(TAG, "Failed to seek to offset %u in %s",
+                (unsigned)fs->file_offset, filepath);
+            fclose(f);
+            return false;
+        }
+
+        size_t written = fwrite(editor->text, 1, editor->length, f);
         fclose(f);
+
+        if (written != editor->length)
+        {
+            ESP_LOGE(TAG, "Short write: expected %u, wrote %u to %s",
+                (unsigned)editor->length, (unsigned)written, filepath);
+            return false;
+        }
         
         ESP_LOGI(TAG, "Saved %u bytes to %s at offset %u", 
             (unsigned)editor->length, filepath, (unsigned)fs->file_offset);
@@ -388,18 +416,39 @@ bool filesystem_load_encrypted(Filesystem *fs, Editor *editor, const char *passw
 {
     if (!fs || !editor || !password) return false;
 
-    // 1. Load the raw scrambled text into the editor buffer
+    // 1. Load the raw file into the editor buffer
     if (!filesystem_load_file(fs, editor)) return false;
 
-    // 2. Decrypt the buffer in-place using the selected method
-    crypto_process(
-        method, 
-        (uint8_t *)editor->text, 
-        editor->length, 
-        password, 
-        false);
+    // 2. Calculate required output buffer size
+    size_t out_cap = editor->length;
+    size_t out_len = 0;
+    uint8_t *decrypted = malloc(out_cap);
+    if (!decrypted)
+    {
+        ESP_LOGE(TAG, "Failed to allocate decrypt buffer");
+        return false;
+    }
 
-    // Force a status update so the UI knows it's ready
+    // 3. Decrypt
+    if (!crypto_decrypt(
+        method,
+        (const uint8_t *)editor->text,
+        editor->length,
+        decrypted,
+        &out_len,
+        password))
+    {
+        ESP_LOGE(TAG, "Decryption failed (wrong password or corrupted file?)");
+        free(decrypted);
+        return false;
+    }
+
+    // 4. Copy decrypted data back into editor buffer
+    memcpy(editor->text, decrypted, out_len);
+    editor->text[out_len] = '\0';
+    editor->length = out_len;
+    free(decrypted);
+
     editor_update_status(editor);
     return true;
 }
@@ -408,24 +457,43 @@ bool filesystem_save_encrypted(Filesystem *fs, Editor *editor, const char *passw
 {
     if (!fs || !editor || !password) return false;
 
-    // 1. Encrypt the data in-place inside the editor buffer
-    crypto_process(
-        method, 
-        (uint8_t *)editor->text, 
-        editor->length, 
-        password, 
-        true);
+    // 1. Calculate output buffer size
+    size_t out_cap = crypto_output_size(method, editor->length);
+    if (out_cap == 0)
+    {
+        ESP_LOGE(TAG, "Unknown crypto method");
+        return false;
+    }
 
-    // 2. Save the scrambled buffer to the SD card
-    bool success = filesystem_save_file(fs, editor);
+    uint8_t *encrypted = malloc(out_cap);
+    if (!encrypted)
+    {
+        ESP_LOGE(TAG, "Failed to allocate encrypt buffer");
+        return false;
+    }
 
-    // 3. Immediately decrypt it back in-place so you can keep editing seamlessly
-    crypto_process(
-        method, 
-        (uint8_t *)editor->text, 
-        editor->length, 
-        password, 
-        false);
+    // 2. Encrypt
+    size_t enc_len = 0;
+    if (!crypto_encrypt(
+        method,
+        (const uint8_t *)editor->text,
+        editor->length,
+        encrypted,
+        &enc_len,
+        password))
+    {
+        ESP_LOGE(TAG, "Encryption failed");
+        free(encrypted);
+        return false;
+    }
 
+    // 3. Save the encrypted data to disk (using a temp editor copy)
+    Editor enc_editor = *editor;
+    memcpy(enc_editor.text, encrypted, enc_len);
+    enc_editor.text[enc_len] = '\0';
+    enc_editor.length = enc_len;
+    bool success = filesystem_save_file(fs, &enc_editor);
+
+    free(encrypted);
     return success;
 }

@@ -32,8 +32,8 @@ void editor_init(Editor *editor)
 
     memset(editor, 0, sizeof(Editor));
 
-    editor->length = strlen(editor->text);
-    editor->cursor = editor->length;
+    editor->length = 0;
+    editor->cursor = 0;
 
     editor_update_status(editor);
 }
@@ -66,6 +66,12 @@ bool editor_insert(Editor *editor, char c)
     }
 
     if (editor->length >= (EDITOR_BUFFER_SIZE - 1))
+    {
+        return false;
+    }
+
+    /* Only accept printable characters and newlines */
+    if (c != '\n' && (c < 32 || c > 126))
     {
         return false;
     }

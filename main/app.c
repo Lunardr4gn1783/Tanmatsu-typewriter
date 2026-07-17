@@ -4,6 +4,13 @@
 #include <stdio.h>
 #include "bsp/input.h"
 
+/* Secure memory clearing that won't be optimized away */
+static void secure_zero(void *ptr, size_t len)
+{
+    volatile unsigned char *p = (volatile unsigned char *)ptr;
+    while (len--) *p++ = 0;
+}
+
 AppContext app;
 
 void app_init(void)
@@ -199,6 +206,7 @@ void app_handle_nav(uint32_t nav_key)
                         app.filesystem.save_mode = false;
                         app.filesystem.hex_mode = false;
                         app.is_saving_encrypted = false;
+                        app.is_loading_encrypted = true;
                         
                         filesystem_load_directory(&app.filesystem, &app.browser);
                         app.state = APP_STATE_BROWSER;
@@ -261,7 +269,7 @@ void app_handle_nav(uint32_t nav_key)
                             filesystem_save_file(&app.filesystem, &app.editor);
                             app.state = APP_STATE_EDITOR;
                         } 
-                        else if (!app.filesystem.save_mode && app.menu_selected == 4) 
+                        else if (app.is_loading_encrypted) 
                         {
                             // Load Encrypted mode - divert to cipher selection first
                             app.selected_cipher = 0;
@@ -312,7 +320,7 @@ void app_handle_nav(uint32_t nav_key)
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RETURN || nav_key == BSP_INPUT_NAVIGATION_KEY_RIGHT) 
             {
                 // Lock in the algorithm and prompt for password
-                memset(app.password_buffer, 0, sizeof(app.password_buffer));
+                secure_zero(app.password_buffer, sizeof(app.password_buffer));
                 app.password_cursor = 0;
                 app.state = APP_STATE_PASSWORD;
                 app.redraw_request = REDRAW_FULL;
@@ -359,6 +367,7 @@ void app_handle_nav(uint32_t nav_key)
         case APP_STATE_PASSWORD:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_ESC) 
             {
+                app.is_loading_encrypted = false;
                 app.state = APP_STATE_EDITOR;
                 app.redraw_request = REDRAW_FULL;
             } 
@@ -376,7 +385,9 @@ void app_handle_nav(uint32_t nav_key)
                         filesystem_load_encrypted(&app.filesystem, &app.editor, app.password_buffer, app.selected_cipher);
                     }
 
-                    memset(app.password_buffer, 0, sizeof(app.password_buffer));
+                    secure_zero(app.password_buffer, sizeof(app.password_buffer));
+                    app.password_cursor = 0;
+                    app.is_loading_encrypted = false;
                     
                     app.state = APP_STATE_EDITOR;
                     app.redraw_request = REDRAW_FULL;

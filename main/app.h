@@ -51,6 +51,7 @@ typedef struct
     
     // Tracks intent when returning from the password prompt
     bool is_saving_encrypted;
+    bool is_loading_encrypted;
 
     int menu_selected;
 
