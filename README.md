@@ -12,9 +12,6 @@ This is a program designed to provide a nano-like editor for the Tanmatsu.
 - RSA
 - Serpent
 
-# In Progress:
-### Optimizations:
-- Improve text input and handling
 # Manual:
 ### To compile:
 - Run in a Linux environment for best compatibility. Either WSL or an actual install should work
