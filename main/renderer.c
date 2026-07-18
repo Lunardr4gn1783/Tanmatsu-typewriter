@@ -28,6 +28,9 @@ typedef struct
 
     bool cursor_visible;
 
+    /* Horizontal scroll offset for long lines (Nano-style) */
+    int scroll_x;
+
 } renderer_t;
 
 static renderer_t renderer;
@@ -92,8 +95,65 @@ static void draw_status_bar(const Editor *editor)
 
 /*----------------------------------------------------------*/
 
+/* Compute horizontal scroll to keep the cursor visible (Nano-style) */
+static void renderer_compute_scroll(const Editor *editor)
+{
+    /* Find the line containing the cursor and measure pixel width up to cursor */
+    int col = 0;
+    int cursor_pixel_x = 5; /* base text offset */
+
+    for (size_t i = 0; i <= editor->length; i++)
+    {
+        if (i == editor->cursor)
+        {
+            /* Measure the text before the cursor on this line */
+            char tmp[128];
+            memcpy(tmp, editor->text + (i - col), col);
+            tmp[col] = '\0';
+            pax_vec1_t dims = pax_text_size(pax_font_sky_mono, 16, tmp);
+            cursor_pixel_x = 5 + (int)dims.x;
+            break;
+        }
+
+        char c = editor->text[i];
+
+        if (c == '\n' || c == '\0' || col >= (int)sizeof(((char[128]){0})) - 1)
+        {
+            col = 0;
+        }
+        else
+        {
+            col++;
+        }
+    }
+
+    /* Nano-style: keep cursor within a margin of the right edge */
+    int margin = renderer.display_w / 4;
+    int view_right = renderer.display_w - margin;
+    int cursor_screen_x = cursor_pixel_x - renderer.scroll_x;
+
+    if (cursor_screen_x > view_right)
+    {
+        renderer.scroll_x = cursor_pixel_x - view_right;
+    }
+    else if (cursor_screen_x < margin)
+    {
+        renderer.scroll_x = cursor_pixel_x - margin;
+    }
+
+    if (renderer.scroll_x < 0)
+        renderer.scroll_x = 0;
+}
+
+/*----------------------------------------------------------*/
+
 static void draw_editor(const Editor *editor)
 {
+    // Compute horizontal scroll to keep cursor visible
+    renderer_compute_scroll(editor);
+
+    int text_x = 5 - renderer.scroll_x;
+
     // 1. Draw static UI Header (Non-editable)
     pax_draw_text(
         &renderer.fb,
@@ -110,7 +170,7 @@ static void draw_editor(const Editor *editor)
     char line[128];
 
     // Track cursor position
-    int cursor_x = 5;
+    int cursor_x = text_x;
     int cursor_y = y;
     bool cursor_found = false;
 
@@ -122,7 +182,7 @@ static void draw_editor(const Editor *editor)
             line[col] = '\0';
             pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line);
             
-            cursor_x = 5 + (int)text_dims.x;
+            cursor_x = text_x + (int)text_dims.x;
             cursor_y = y;
             cursor_found = true;
         }
@@ -138,7 +198,7 @@ static void draw_editor(const Editor *editor)
                 COLOR_WHITE,
                 pax_font_sky_mono,
                 16,
-                5,
+                text_x,
                 y,
                 line);
 
@@ -176,6 +236,10 @@ static void draw_editor(const Editor *editor)
 
 static void renderer_update_cursor_only(const Editor *editor)
 {
+    /* Recompute scroll in case cursor position changed */
+    renderer_compute_scroll(editor);
+
+    int text_x = 5 - renderer.scroll_x;
     int y = HEADER_HEIGHT + 2;
     int col = 0;
     char line_buf[128];
@@ -216,14 +280,14 @@ found:
         COLOR_WHITE,
         pax_font_sky_mono,
         16,
-        5,
+        text_x,
         y,
         line_buf);
 
     /* Measure just up to cursor for the cursor_x position */
     line_buf[cursor_col] = '\0';
     pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line_buf);
-    int cursor_x = 5 + (int)text_dims.x;
+    int cursor_x = text_x + (int)text_dims.x;
 
     /* Draw cursor overlay */
     if (renderer.cursor_visible)
