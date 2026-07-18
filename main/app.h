@@ -26,7 +26,9 @@ typedef enum
 {
     REDRAW_NONE = 0,
     REDRAW_CURSOR,  // Only the cursor toggled
-    REDRAW_LINE,    // Future optimization: only redraw current line
+    REDRAW_LINE,    // Only the current editor line changed
+    REDRAW_MENU,    // Only the menu selection highlight moved
+    REDRAW_BROWSER, // Only the browser selection highlight moved
     REDRAW_FULL     // Page changed, menu opened, etc.
 } RedrawType;
 
@@ -54,6 +56,10 @@ typedef struct
     bool is_loading_encrypted;
 
     int menu_selected;
+    int prev_menu_selected;
+
+    int prev_browser_selected;
+    int prev_browser_scroll;
 
     bool cursor_visible;
 

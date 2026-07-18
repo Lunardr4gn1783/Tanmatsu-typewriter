@@ -279,6 +279,44 @@ static void renderer_draw_menu(int menu_selected)
 
 /*----------------------------------------------------------*/
 
+static void renderer_update_menu(int prev_selected, int new_selected)
+{
+    // Only redraw the two affected rows instead of the full menu
+
+    // Clear and redraw the old selection row (remove highlight)
+    int old_y = 30 + prev_selected * MENU_ITEM_HEIGHT;
+    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, old_y, renderer.display_w, MENU_ITEM_HEIGHT);
+    pax_draw_text(
+        &renderer.fb,
+        COLOR_WHITE,
+        pax_font_sky_mono,
+        16,
+        10,
+        old_y + 2,
+        menu_items[prev_selected]);
+
+    // Clear and redraw the new selection row (add highlight)
+    int new_y = 30 + new_selected * MENU_ITEM_HEIGHT;
+    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, new_y, renderer.display_w, MENU_ITEM_HEIGHT);
+    pax_simple_rect(
+        &renderer.fb,
+        COLOR_BLUE,
+        5,
+        new_y,
+        220,
+        MENU_ITEM_HEIGHT - 2);
+    pax_draw_text(
+        &renderer.fb,
+        COLOR_WHITE,
+        pax_font_sky_mono,
+        16,
+        10,
+        new_y + 2,
+        menu_items[new_selected]);
+}
+
+/*----------------------------------------------------------*/
+
 static void draw_browser(const Browser *browser, const Filesystem *fs)
 {
     pax_simple_rect(
@@ -358,6 +396,63 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
             10,
             y + 2,
             text);
+    }
+}
+
+/*----------------------------------------------------------*/
+
+static void renderer_update_browser(
+    const Browser *browser,
+    const Filesystem *fs,
+    int prev_selected,
+    int prev_scroll)
+{
+    // If scroll changed, the entire list shifted — fall back to full redraw
+    if (browser->scroll != prev_scroll)
+    {
+        draw_browser(browser, fs);
+        return;
+    }
+
+    int visible =
+        (renderer.display_h - HEADER_HEIGHT - HELP_BAR_HEIGHT) /
+        MENU_ITEM_HEIGHT;
+
+    // Clear and redraw the old selection row
+    int old_row = prev_selected - browser->scroll;
+    if (old_row >= 0 && old_row < visible)
+    {
+        int y = HEADER_HEIGHT + old_row * MENU_ITEM_HEIGHT;
+        pax_col_t bg = (old_row & 1) ? COLOR_BG_ROW2 : COLOR_BG_ROW1;
+        pax_simple_rect(&renderer.fb, bg, 0, y, renderer.display_w - 10, MENU_ITEM_HEIGHT);
+
+        int idx = old_row + browser->scroll;
+        if (idx < browser->count)
+        {
+            char text[96];
+            snprintf(text, sizeof(text), "%s %s",
+                browser->entries[idx].is_directory ? "[DIR ]" : "[FILE]",
+                browser->entries[idx].name);
+            pax_draw_text(&renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, 10, y + 2, text);
+        }
+    }
+
+    // Clear and redraw the new selection row
+    int new_row = browser->selected - browser->scroll;
+    if (new_row >= 0 && new_row < visible)
+    {
+        int y = HEADER_HEIGHT + new_row * MENU_ITEM_HEIGHT;
+        pax_simple_rect(&renderer.fb, COLOR_BLUE, 0, y, renderer.display_w - 10, MENU_ITEM_HEIGHT);
+
+        int idx = new_row + browser->scroll;
+        if (idx < browser->count)
+        {
+            char text[96];
+            snprintf(text, sizeof(text), "%s %s",
+                browser->entries[idx].is_directory ? "[DIR ]" : "[FILE]",
+                browser->entries[idx].name);
+            pax_draw_text(&renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, 10, y + 2, text);
+        }
     }
 }
 
@@ -588,13 +683,33 @@ void renderer_render(AppContext *context)
         return;
     }
 
-    // --- FAST PATH: Cursor Blink Only ---
-    if (context->redraw_request == REDRAW_CURSOR && context->state == APP_STATE_EDITOR)
+    // --- FAST PATH: Cursor Blink Only / Line Changed ---
+    if ((context->redraw_request == REDRAW_CURSOR || context->redraw_request == REDRAW_LINE) && context->state == APP_STATE_EDITOR)
     {
         renderer_update_cursor_only(&context->editor);
         renderer_present_internal();
         
         // Clear the flag and exit
+        context->redraw_request = REDRAW_NONE;
+        return;
+    }
+
+    // --- FAST PATH: Menu Selection Changed ---
+    if (context->redraw_request == REDRAW_MENU && context->state == APP_STATE_MENU)
+    {
+        renderer_update_menu(context->prev_menu_selected, context->menu_selected);
+        renderer_present_internal();
+        
+        context->redraw_request = REDRAW_NONE;
+        return;
+    }
+
+    // --- FAST PATH: Browser Selection Changed ---
+    if (context->redraw_request == REDRAW_BROWSER && context->state == APP_STATE_BROWSER)
+    {
+        renderer_update_browser(&context->browser, &context->filesystem, context->prev_browser_selected, context->prev_browser_scroll);
+        renderer_present_internal();
+        
         context->redraw_request = REDRAW_NONE;
         return;
     }

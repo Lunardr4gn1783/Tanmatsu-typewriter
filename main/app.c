@@ -24,6 +24,9 @@ void app_init(void)
     app.cursor_visible = true;
     app.redraw_request = REDRAW_FULL;
     app.menu_selected = 0;
+    app.prev_menu_selected = 0;
+    app.prev_browser_selected = 0;
+    app.prev_browser_scroll = 0;
 
     editor_init(&app.editor);
     filesystem_init(&app.filesystem);
@@ -40,18 +43,19 @@ void app_handle_char(char key)
         if (key == '\b') 
         {
             editor_backspace(&app.editor);
+            app.redraw_request = REDRAW_FULL;
         } 
         else if (key == '\t')
         {
             for (int i = 0; i < TAB_WIDTH; i++)
                 editor_insert(&app.editor, ' ');
+            app.redraw_request = REDRAW_LINE;
         }
         else 
         {
             editor_insert(&app.editor, key);
+            app.redraw_request = REDRAW_LINE;
         }
-        
-        app.redraw_request = REDRAW_FULL; 
     }
     else if (app.state == APP_STATE_SAVE_AS)
     {
@@ -167,16 +171,18 @@ void app_handle_nav(uint32_t nav_key)
             {
                 if (app.menu_selected < 7) 
                 {
+                    app.prev_menu_selected = app.menu_selected;
                     app.menu_selected++;
-                    app.redraw_request = REDRAW_FULL;
+                    app.redraw_request = REDRAW_MENU;
                 }
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP) 
             {
                 if (app.menu_selected > 0) 
                 {
+                    app.prev_menu_selected = app.menu_selected;
                     app.menu_selected--;
-                    app.redraw_request = REDRAW_FULL;
+                    app.redraw_request = REDRAW_MENU;
                 }
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_ESC || nav_key == BSP_INPUT_NAVIGATION_KEY_F2) 
@@ -241,11 +247,15 @@ void app_handle_nav(uint32_t nav_key)
         case APP_STATE_BROWSER:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN) 
             {
-                if (browser_move_down(&app.browser)) app.redraw_request = REDRAW_FULL;
+                app.prev_browser_selected = app.browser.selected;
+                app.prev_browser_scroll = app.browser.scroll;
+                if (browser_move_down(&app.browser)) app.redraw_request = REDRAW_BROWSER;
             } 
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP) 
             {
-                if (browser_move_up(&app.browser)) app.redraw_request = REDRAW_FULL;
+                app.prev_browser_selected = app.browser.selected;
+                app.prev_browser_scroll = app.browser.scroll;
+                if (browser_move_up(&app.browser)) app.redraw_request = REDRAW_BROWSER;
             } 
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_ESC || nav_key == BSP_INPUT_NAVIGATION_KEY_LEFT) 
             {
