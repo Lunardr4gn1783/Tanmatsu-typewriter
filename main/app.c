@@ -5,6 +5,78 @@
 #include "bsp/device.h"
 #include "bsp/input.h"
 #include "esp_system.h"
+#include "nvs.h"
+#include "theme.h"
+
+/* Available editor font sizes to cycle through */
+static const int font_sizes[] = {12, 16, 20, 24, 32};
+static const int FONT_SIZE_COUNT = sizeof(font_sizes) / sizeof(font_sizes[0]);
+
+#define SETTINGS_NVS_NAMESPACE "typewriter"
+
+static void settings_save(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK)
+    {
+        nvs_set_i32(handle, "font_size", app.font_size);
+        nvs_set_u8(handle, "autocap", app.auto_capitalize ? 1 : 0);
+        nvs_set_u8(handle, "theme", (uint8_t)app.theme_index);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+}
+
+static void settings_load(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK)
+    {
+        int32_t fs = 0;
+        uint8_t ac = 0;
+
+        if (nvs_get_i32(handle, "font_size", &fs) == ESP_OK)
+        {
+            /* Only accept values from the known list */
+            for (int i = 0; i < FONT_SIZE_COUNT; i++)
+            {
+                if (font_sizes[i] == (int)fs)
+                {
+                    app.font_size = (int)fs;
+                    break;
+                }
+            }
+        }
+
+        if (nvs_get_u8(handle, "autocap", &ac) == ESP_OK)
+        {
+            app.auto_capitalize = (ac != 0);
+        }
+
+        uint8_t th = 0;
+        if (nvs_get_u8(handle, "theme", &th) == ESP_OK && th < THEME_COUNT)
+        {
+            app.theme_index = (int)th;
+        }
+
+        nvs_close(handle);
+    }
+}
+
+static void cycle_font_size(int direction)
+{
+    int index = 0;
+    for (int i = 0; i < FONT_SIZE_COUNT; i++)
+    {
+        if (font_sizes[i] == app.font_size)
+        {
+            index = i;
+            break;
+        }
+    }
+    index = (index + direction + FONT_SIZE_COUNT) % FONT_SIZE_COUNT;
+    app.font_size = font_sizes[index];
+}
 
 /* Secure memory clearing that won't be optimized away */
 static void secure_zero(void *ptr, size_t len)
@@ -27,6 +99,12 @@ void app_init(void)
     app.prev_menu_selected = 0;
     app.prev_browser_selected = 0;
     app.prev_browser_scroll = 0;
+
+    /* Setting defaults: normal size, auto-capitalize OFF, dark theme */
+    app.font_size = 16;
+    app.auto_capitalize = false;
+    app.theme_index = 0;
+    settings_load();
 
     editor_init(&app.editor);
     filesystem_init(&app.filesystem);
@@ -53,6 +131,34 @@ void app_handle_char(char key)
         }
         else 
         {
+            /* Auto-capitalize: uppercase the first letter of a sentence */
+            if (app.auto_capitalize && key >= 'a' && key <= 'z')
+            {
+                bool sentence_start = true;
+                size_t i = app.editor.cursor;
+
+                /* Walk back over whitespace to find the previous real character */
+                while (i > 0)
+                {
+                    char prev = app.editor.text[i - 1];
+
+                    if (prev == ' ' || prev == '\t')
+                    {
+                        i--;
+                        continue;
+                    }
+
+                    sentence_start = (prev == '.' || prev == '!' ||
+                                      prev == '?' || prev == '\n');
+                    break;
+                }
+
+                if (sentence_start)
+                {
+                    key = key - 'a' + 'A';
+                }
+            }
+
             editor_insert(&app.editor, key);
             app.redraw_request = REDRAW_LINE;
         }
@@ -169,7 +275,7 @@ void app_handle_nav(uint32_t nav_key)
         case APP_STATE_MENU:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN) 
             {
-                if (app.menu_selected < 7) 
+                if (app.menu_selected < MENU_ITEM_COUNT - 1) 
                 {
                     app.prev_menu_selected = app.menu_selected;
                     app.menu_selected++;
@@ -189,6 +295,22 @@ void app_handle_nav(uint32_t nav_key)
             {
                 app.state = APP_STATE_EDITOR;
                 app.redraw_request = REDRAW_FULL;
+            }
+            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_LEFT)
+            {
+                /* Left arrow cycles settings backwards */
+                if (app.menu_selected == 6) // Text Size
+                {
+                    cycle_font_size(-1);
+                    settings_save();
+                    app.redraw_request = REDRAW_FULL;
+                }
+                else if (app.menu_selected == 8) // Theme
+                {
+                    app.theme_index = (app.theme_index + THEME_COUNT - 1) % THEME_COUNT;
+                    settings_save();
+                    app.redraw_request = REDRAW_FULL;
+                }
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RETURN || nav_key == BSP_INPUT_NAVIGATION_KEY_RIGHT) 
             {
@@ -230,10 +352,22 @@ void app_handle_nav(uint32_t nav_key)
                         filesystem_load_directory(&app.filesystem, &app.browser);
                         app.state = APP_STATE_BROWSER;
                         break;
-                    case 6: // Back to Editor
+                    case 6: // Text Size (cycle 12 -> 16 -> 20 -> 24 -> 32)
+                        cycle_font_size(1);
+                        settings_save();
+                        break;
+                    case 7: // Auto Capitals (toggle, default off)
+                        app.auto_capitalize = !app.auto_capitalize;
+                        settings_save();
+                        break;
+                    case 8: // Theme (cycle Dark -> Paper -> Amber -> Green)
+                        app.theme_index = (app.theme_index + 1) % THEME_COUNT;
+                        settings_save();
+                        break;
+                    case 9: // Back to Editor
                         app.state = APP_STATE_EDITOR;
                         break;
-                    case 7: // Quit to Launcher
+                    case 10: // Quit to Launcher
                         bsp_device_restart_to_launcher();
                         break;
                 }

@@ -2,6 +2,10 @@
 #include "app.h"
 #include "config.h"
 #include "crypto.h"
+#include "theme.h"
+
+/* Shorthand for the active theme's colors */
+#define THEME (theme_get(app.theme_index))
 
 #include "bsp/display.h"
 #include "pax_gfx.h"
@@ -38,17 +42,27 @@ static renderer_t renderer;
 /*----------------------------------------------------------*/
 /* Menu Setup */
 /*----------------------------------------------------------*/
-static const char* menu_items[] = {
-    "Save (Overwrite)", 
-    "Save As...", 
-    "Save Encrypted", 
-    "Load Text", 
-    "Load Encrypted", 
-    "Load Hex", 
-    "Back to Editor",
-    "Quit to Launcher"
-};
-static const int MENU_ITEM_COUNT = 8;
+/* MENU_ITEM_COUNT is defined in app.h so app.c stays in sync */
+static void menu_item_label(int index, char *buffer, size_t size)
+{
+    switch (index)
+    {
+        case 0: snprintf(buffer, size, "Save (Overwrite)"); break;
+        case 1: snprintf(buffer, size, "Save As..."); break;
+        case 2: snprintf(buffer, size, "Save Encrypted"); break;
+        case 3: snprintf(buffer, size, "Load Text"); break;
+        case 4: snprintf(buffer, size, "Load Encrypted"); break;
+        case 5: snprintf(buffer, size, "Load Hex"); break;
+        case 6: snprintf(buffer, size, "Text Size: %d", app.font_size); break;
+        case 7: snprintf(buffer, size, "Auto Capitals: %s",
+                         app.auto_capitalize ? "ON" : "OFF"); break;
+        case 8: snprintf(buffer, size, "Theme: %s",
+                         theme_name(app.theme_index)); break;
+        case 9: snprintf(buffer, size, "Back to Editor"); break;
+        case 10: snprintf(buffer, size, "Quit to Launcher"); break;
+        default: buffer[0] = '\0'; break;
+    }
+}
 
 /*----------------------------------------------------------*/
 
@@ -56,7 +70,7 @@ static void renderer_clear(void)
 {
     pax_background(
         &renderer.fb,
-        COLOR_BLACK);
+        THEME->bg);
 }
 
 /*----------------------------------------------------------*/
@@ -77,7 +91,7 @@ static void draw_status_bar(const Editor *editor)
 {
     pax_simple_rect(
         &renderer.fb,
-        COLOR_RED,
+        THEME->status_bg,
         0,
         renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT,
         renderer.display_w,
@@ -85,7 +99,7 @@ static void draw_status_bar(const Editor *editor)
 
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->status_fg,
         pax_font_sky_mono,
         16,
         8,
@@ -110,7 +124,7 @@ static void renderer_compute_scroll(const Editor *editor)
             char tmp[128];
             memcpy(tmp, editor->text + (i - col), col);
             tmp[col] = '\0';
-            pax_vec1_t dims = pax_text_size(pax_font_sky_mono, 16, tmp);
+            pax_vec1_t dims = pax_text_size(pax_font_sky_mono, app.font_size, tmp);
             cursor_pixel_x = 5 + (int)dims.x;
             break;
         }
@@ -157,7 +171,7 @@ static void draw_editor(const Editor *editor)
     // 1. Draw static UI Header (Non-editable)
     pax_draw_text(
         &renderer.fb,
-        COLOR_BLUE,
+        THEME->accent,
         pax_font_sky_mono,
         16,
         5,
@@ -165,6 +179,9 @@ static void draw_editor(const Editor *editor)
         "Tanmatsu Editor v" APP_VERSION " - System Ready");
 
     // 2. Start the editable text area below the header
+    int font_size = app.font_size;
+    int line_spacing = font_size + 2;
+
     int y = HEADER_HEIGHT + 2; 
     int col = 0;
     char line[128];
@@ -180,7 +197,7 @@ static void draw_editor(const Editor *editor)
         {
             // Temporarily null-terminate the line to measure its exact pixel width
             line[col] = '\0';
-            pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line);
+            pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, font_size, line);
             
             cursor_x = text_x + (int)text_dims.x;
             cursor_y = y;
@@ -195,18 +212,18 @@ static void draw_editor(const Editor *editor)
 
             pax_draw_text(
                 &renderer.fb,
-                COLOR_WHITE,
+                THEME->fg,
                 pax_font_sky_mono,
-                16,
+                font_size,
                 text_x,
                 y,
                 line);
 
-            y += LINE_SPACING;
+            y += line_spacing;
             col = 0;
 
             // Stop if we hit the bottom of the screen (above status and help bars)
-            if (y > renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT - LINE_SPACING)
+            if (y > renderer.display_h - STATUS_BAR_HEIGHT - HELP_BAR_HEIGHT - line_spacing)
             {
                 break;
             }
@@ -222,11 +239,11 @@ static void draw_editor(const Editor *editor)
     {
         pax_simple_rect(
             &renderer.fb,
-            COLOR_WHITE,
+            THEME->fg,
             cursor_x,
             cursor_y,
             CURSOR_WIDTH,
-            FONT_HEIGHT);
+            font_size);
     }
 
     draw_status_bar(editor);
@@ -238,6 +255,9 @@ static void renderer_update_cursor_only(const Editor *editor)
 {
     /* Recompute scroll in case cursor position changed */
     renderer_compute_scroll(editor);
+
+    int font_size = app.font_size;
+    int line_spacing = font_size + 2;
 
     int text_x = 5 - renderer.scroll_x;
     int y = HEADER_HEIGHT + 2;
@@ -260,7 +280,7 @@ static void renderer_update_cursor_only(const Editor *editor)
             if (cursor_col >= 0)
                 goto found;
 
-            y += LINE_SPACING;
+            y += line_spacing;
             col = 0;
         }
         else
@@ -272,21 +292,21 @@ static void renderer_update_cursor_only(const Editor *editor)
 
 found:
     /* Clear just this line's row with black background */
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, y, renderer.display_w, LINE_SPACING);
+    pax_simple_rect(&renderer.fb, THEME->bg, 0, y, renderer.display_w, line_spacing);
 
     /* Re-render the full line text */
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
-        16,
+        font_size,
         text_x,
         y,
         line_buf);
 
     /* Measure just up to cursor for the cursor_x position */
     line_buf[cursor_col] = '\0';
-    pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, 16, line_buf);
+    pax_vec1_t text_dims = pax_text_size(pax_font_sky_mono, font_size, line_buf);
     int cursor_x = text_x + (int)text_dims.x;
 
     /* Draw cursor overlay */
@@ -294,11 +314,11 @@ found:
     {
         pax_simple_rect(
             &renderer.fb,
-            COLOR_WHITE,
+            THEME->fg,
             cursor_x,
             y,
             CURSOR_WIDTH,
-            FONT_HEIGHT);
+            font_size);
     }
 }
 
@@ -308,7 +328,7 @@ static void renderer_draw_menu(int menu_selected)
 {
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
         16,
         5,
@@ -323,21 +343,24 @@ static void renderer_draw_menu(int menu_selected)
         {
             pax_simple_rect(
                 &renderer.fb,
-                COLOR_BLUE,
+                THEME->highlight,
                 5,
                 y,
                 220,
                 MENU_ITEM_HEIGHT - 2);
         }
 
+        char label[48];
+        menu_item_label(i, label, sizeof(label));
+
         pax_draw_text(
             &renderer.fb,
-            COLOR_WHITE,
+            THEME->fg,
             pax_font_sky_mono,
             16,
             10,
             y + 2,
-            menu_items[i]);
+            label);
     }
 }
 
@@ -347,36 +370,40 @@ static void renderer_update_menu(int prev_selected, int new_selected)
 {
     // Only redraw the two affected rows instead of the full menu
 
+    char label[48];
+
     // Clear and redraw the old selection row (remove highlight)
     int old_y = 30 + prev_selected * MENU_ITEM_HEIGHT;
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, old_y, renderer.display_w, MENU_ITEM_HEIGHT);
+    pax_simple_rect(&renderer.fb, THEME->bg, 0, old_y, renderer.display_w, MENU_ITEM_HEIGHT);
+    menu_item_label(prev_selected, label, sizeof(label));
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
         16,
         10,
         old_y + 2,
-        menu_items[prev_selected]);
+        label);
 
     // Clear and redraw the new selection row (add highlight)
     int new_y = 30 + new_selected * MENU_ITEM_HEIGHT;
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, 0, new_y, renderer.display_w, MENU_ITEM_HEIGHT);
+    pax_simple_rect(&renderer.fb, THEME->bg, 0, new_y, renderer.display_w, MENU_ITEM_HEIGHT);
     pax_simple_rect(
         &renderer.fb,
-        COLOR_BLUE,
+        THEME->highlight,
         5,
         new_y,
         220,
         MENU_ITEM_HEIGHT - 2);
+    menu_item_label(new_selected, label, sizeof(label));
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
         16,
         10,
         new_y + 2,
-        menu_items[new_selected]);
+        label);
 }
 
 /*----------------------------------------------------------*/
@@ -385,7 +412,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
 {
     pax_simple_rect(
         &renderer.fb,
-        COLOR_BG_HEADER,
+        THEME->header_bg,
         0,
         0,
         renderer.display_w,
@@ -393,7 +420,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
 
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
         16,
         5,
@@ -402,7 +429,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
 
     pax_draw_text(
         &renderer.fb,
-        COLOR_SCROLL_FG,
+        THEME->dim,
         pax_font_sky_mono,
         16,
         5,
@@ -427,11 +454,11 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
 
         pax_col_t bg =
             (i & 1)
-                ? COLOR_BG_ROW2
-                : COLOR_BG_ROW1;
+                ? THEME->row2
+                : THEME->row1;
 
         if (idx == browser->selected)
-            bg = COLOR_BLUE;
+            bg = THEME->highlight;
 
         pax_simple_rect(
             &renderer.fb,
@@ -454,7 +481,7 @@ static void draw_browser(const Browser *browser, const Filesystem *fs)
 
         pax_draw_text(
             &renderer.fb,
-            COLOR_WHITE,
+            THEME->fg,
             pax_font_sky_mono,
             16,
             10,
@@ -487,7 +514,7 @@ static void renderer_update_browser(
     if (old_row >= 0 && old_row < visible)
     {
         int y = HEADER_HEIGHT + old_row * MENU_ITEM_HEIGHT;
-        pax_col_t bg = (old_row & 1) ? COLOR_BG_ROW2 : COLOR_BG_ROW1;
+        pax_col_t bg = (old_row & 1) ? THEME->row2 : THEME->row1;
         pax_simple_rect(&renderer.fb, bg, 0, y, renderer.display_w - 10, MENU_ITEM_HEIGHT);
 
         int idx = old_row + browser->scroll;
@@ -497,7 +524,7 @@ static void renderer_update_browser(
             snprintf(text, sizeof(text), "%s %s",
                 browser->entries[idx].is_directory ? "[DIR ]" : "[FILE]",
                 browser->entries[idx].name);
-            pax_draw_text(&renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, 10, y + 2, text);
+            pax_draw_text(&renderer.fb, THEME->fg, pax_font_sky_mono, 16, 10, y + 2, text);
         }
     }
 
@@ -506,7 +533,7 @@ static void renderer_update_browser(
     if (new_row >= 0 && new_row < visible)
     {
         int y = HEADER_HEIGHT + new_row * MENU_ITEM_HEIGHT;
-        pax_simple_rect(&renderer.fb, COLOR_BLUE, 0, y, renderer.display_w - 10, MENU_ITEM_HEIGHT);
+        pax_simple_rect(&renderer.fb, THEME->highlight, 0, y, renderer.display_w - 10, MENU_ITEM_HEIGHT);
 
         int idx = new_row + browser->scroll;
         if (idx < browser->count)
@@ -515,7 +542,7 @@ static void renderer_update_browser(
             snprintf(text, sizeof(text), "%s %s",
                 browser->entries[idx].is_directory ? "[DIR ]" : "[FILE]",
                 browser->entries[idx].name);
-            pax_draw_text(&renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, 10, y + 2, text);
+            pax_draw_text(&renderer.fb, THEME->fg, pax_font_sky_mono, 16, 10, y + 2, text);
         }
     }
 }
@@ -532,12 +559,12 @@ static void draw_save_as(const AppContext *context)
     int box_h = 70;
     int box_x = (renderer.display_w - box_w) / 2;
     int box_y = (renderer.display_h - box_h) / 2;
-    pax_simple_rect(&renderer.fb, COLOR_BLUE, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, box_x, box_y, box_w, box_h);
+    pax_simple_rect(&renderer.fb, THEME->accent, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
+    pax_simple_rect(&renderer.fb, THEME->bg, box_x, box_y, box_w, box_h);
 
     // Draw the title
     pax_draw_text(
-        &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
+        &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
         "Enter new filename:");
 
     // Draw the typed text with a blinking underscore cursor
@@ -548,7 +575,7 @@ static void draw_save_as(const AppContext *context)
         renderer.cursor_visible ? "_" : " ");
         
     pax_draw_text(
-        &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 35, 
+        &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, box_y + 35, 
         input_display);
 }
 
@@ -566,10 +593,10 @@ static void draw_crypto_menu(const AppContext *context)
 
     // Purple border for crypto selection
     pax_simple_rect(&renderer.fb, 0xFF800080, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, box_x, box_y, box_w, box_h);
+    pax_simple_rect(&renderer.fb, THEME->bg, box_x, box_y, box_w, box_h);
 
     pax_draw_text(
-        &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
+        &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
         "Select Cipher Method:");
 
     for (int i = 0; i < CRYPTO_METHOD_COUNT; i++)
@@ -578,12 +605,12 @@ static void draw_crypto_menu(const AppContext *context)
 
         if (i == context->selected_cipher)
         {
-            pax_simple_rect(&renderer.fb, COLOR_BLUE, box_x + 5, item_y, box_w - 10, MENU_ITEM_HEIGHT - 2);
+            pax_simple_rect(&renderer.fb, THEME->highlight, box_x + 5, item_y, box_w - 10, MENU_ITEM_HEIGHT - 2);
         }
 
         // Fetch the name dynamically from our crypto module
         pax_draw_text(
-            &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, item_y + 2, 
+            &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, item_y + 2, 
             crypto_method_name((CryptoMethod)i));
     }
 }
@@ -602,11 +629,11 @@ static void draw_password(const AppContext *context)
 
     // Red border indicates security action
     pax_simple_rect(&renderer.fb, COLOR_RED, box_x - 2, box_y - 2, box_w + 4, box_h + 4);
-    pax_simple_rect(&renderer.fb, COLOR_BLACK, box_x, box_y, box_w, box_h);
+    pax_simple_rect(&renderer.fb, THEME->bg, box_x, box_y, box_w, box_h);
 
     const char *title = context->is_saving_encrypted ? "Set Password to Encrypt:" : "Enter Password to Decrypt:";
     pax_draw_text(
-        &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
+        &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, box_y + 10, 
         title);
 
     // Generate masked string
@@ -624,7 +651,7 @@ static void draw_password(const AppContext *context)
         renderer.cursor_visible ? "_" : " ");
         
     pax_draw_text(
-        &renderer.fb, COLOR_WHITE, pax_font_sky_mono, 16, box_x + 10, box_y + 35, 
+        &renderer.fb, THEME->fg, pax_font_sky_mono, 16, box_x + 10, box_y + 35, 
         masked_display);
 }
 
@@ -636,7 +663,7 @@ static void draw_help_bar(const AppContext *context)
 
     pax_simple_rect(
         &renderer.fb,
-        COLOR_BG_HEADER,
+        THEME->header_bg,
         0,
         bar_y,
         renderer.display_w,
@@ -650,7 +677,7 @@ static void draw_help_bar(const AppContext *context)
             text = "ESC:Menu Arr:Move Vol:Pg Meta+Shift:Caps";
             break;
         case APP_STATE_MENU:
-            text = "Up/Dn:Nav Enter:Sel ESC:Back";
+            text = "Up/Dn:Nav Enter:Sel L/R:Adjust ESC:Back";
             break;
         case APP_STATE_BROWSER:
             text = "Up/Dn:Nav Enter:Open ESC:Back";
@@ -668,7 +695,7 @@ static void draw_help_bar(const AppContext *context)
 
     pax_draw_text(
         &renderer.fb,
-        COLOR_WHITE,
+        THEME->fg,
         pax_font_sky_mono,
         16,
         8,

@@ -9,6 +9,9 @@
 #include "filesystem.h"
 #include "crypto.h"
 
+// Total number of items in the main menu (app.c + renderer.c stay in sync)
+#define MENU_ITEM_COUNT 11
+
 // The core application states
 typedef enum
 {
@@ -64,6 +67,11 @@ typedef struct
     bool cursor_visible;
 
     bool caps_lock;
+
+    /* User settings (persisted in NVS) */
+    int  font_size;         // Editor text size in pixels
+    bool auto_capitalize;   // Capitalize first letter of sentences (default: off)
+    int  theme_index;       // Active color theme (see theme.h)
 
     RedrawType redraw_request;
 
