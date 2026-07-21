@@ -5,6 +5,94 @@
 #include "bsp/device.h"
 #include "bsp/input.h"
 #include "esp_system.h"
+#include "nvs.h"
+#include "theme.h"
+#include "renderer.h"
+#include "layout.h"
+
+/* Available editor font sizes to cycle through */
+static const int font_sizes[] = {12, 16, 20, 24, 32};
+static const int FONT_SIZE_COUNT = sizeof(font_sizes) / sizeof(font_sizes[0]);
+
+#define SETTINGS_NVS_NAMESPACE "typewriter"
+
+static void settings_save(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK)
+    {
+        nvs_set_i32(handle, "font_size", app.font_size);
+        nvs_set_u8(handle, "autocap", app.auto_capitalize ? 1 : 0);
+        nvs_set_u8(handle, "theme", (uint8_t)app.theme_index);
+        nvs_set_u8(handle, "font", (uint8_t)app.font_index);
+        nvs_set_u8(handle, "wrap", app.word_wrap ? 1 : 0);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+}
+
+static void settings_load(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK)
+    {
+        int32_t fs = 0;
+        uint8_t ac = 0;
+
+        if (nvs_get_i32(handle, "font_size", &fs) == ESP_OK)
+        {
+            /* Only accept values from the known list */
+            for (int i = 0; i < FONT_SIZE_COUNT; i++)
+            {
+                if (font_sizes[i] == (int)fs)
+                {
+                    app.font_size = (int)fs;
+                    break;
+                }
+            }
+        }
+
+        if (nvs_get_u8(handle, "autocap", &ac) == ESP_OK)
+        {
+            app.auto_capitalize = (ac != 0);
+        }
+
+        uint8_t th = 0;
+        if (nvs_get_u8(handle, "theme", &th) == ESP_OK && th < THEME_COUNT)
+        {
+            app.theme_index = (int)th;
+        }
+
+        uint8_t fo = 0;
+        if (nvs_get_u8(handle, "font", &fo) == ESP_OK && fo < EDITOR_FONT_COUNT)
+        {
+            app.font_index = (int)fo;
+        }
+
+        uint8_t ww = 0;
+        if (nvs_get_u8(handle, "wrap", &ww) == ESP_OK)
+        {
+            app.word_wrap = (ww != 0);
+        }
+
+        nvs_close(handle);
+    }
+}
+
+static void cycle_font_size(int direction)
+{
+    int index = 0;
+    for (int i = 0; i < FONT_SIZE_COUNT; i++)
+    {
+        if (font_sizes[i] == app.font_size)
+        {
+            index = i;
+            break;
+        }
+    }
+    index = (index + direction + FONT_SIZE_COUNT) % FONT_SIZE_COUNT;
+    app.font_size = font_sizes[index];
+}
 
 /* Secure memory clearing that won't be optimized away */
 static void secure_zero(void *ptr, size_t len)
@@ -28,6 +116,14 @@ void app_init(void)
     app.prev_browser_selected = 0;
     app.prev_browser_scroll = 0;
 
+    /* Setting defaults: normal size, auto-capitalize OFF, dark theme */
+    app.font_size = 16;
+    app.auto_capitalize = false;
+    app.theme_index = 0;
+    app.font_index = 0;
+    app.word_wrap = true;
+    settings_load();
+
     editor_init(&app.editor);
     filesystem_init(&app.filesystem);
     browser_init(&app.browser);
@@ -36,10 +132,81 @@ void app_init(void)
 /*------------------------------------------------------------------
  * Input Routing: Typing Characters
  *----------------------------------------------------------------*/
+/* Internal clipboard for copy/cut/paste */
+static char   clipboard[EDITOR_BUFFER_SIZE];
+static size_t clipboard_length = 0;
+
+void app_toggle_md_preview(void)
+{
+    if (app.state == APP_STATE_EDITOR)
+    {
+        app.state = APP_STATE_MD_PREVIEW;
+        app.md_scroll = 0;
+        app.redraw_request = REDRAW_FULL;
+    }
+    else if (app.state == APP_STATE_MD_PREVIEW)
+    {
+        app.state = APP_STATE_EDITOR;
+        app.redraw_request = REDRAW_FULL;
+    }
+}
+
+void app_handle_shortcut(char key)
+{
+    if (key == 'm')
+    {
+        app_toggle_md_preview();
+        return;
+    }
+
+    if (app.state != APP_STATE_EDITOR)
+    {
+        return;
+    }
+
+    size_t start, end;
+
+    switch (key)
+    {
+        case 'a': /* Select all */
+            editor_select_all(&app.editor);
+            app.redraw_request = REDRAW_FULL;
+            break;
+
+        case 'c': /* Copy */
+            if (editor_selection(&app.editor, &start, &end))
+            {
+                clipboard_length = end - start;
+                memcpy(clipboard, app.editor.text + start, clipboard_length);
+            }
+            break;
+
+        case 'x': /* Cut */
+            if (editor_selection(&app.editor, &start, &end))
+            {
+                clipboard_length = end - start;
+                memcpy(clipboard, app.editor.text + start, clipboard_length);
+                editor_delete_selection(&app.editor);
+                app.redraw_request = REDRAW_FULL;
+            }
+            break;
+
+        case 'v': /* Paste */
+            if (clipboard_length > 0)
+            {
+                editor_insert_text(&app.editor, clipboard, clipboard_length);
+                app.redraw_request = REDRAW_FULL;
+            }
+            break;
+    }
+}
+
 void app_handle_char(char key)
 {
     if (app.state == APP_STATE_EDITOR)
     {
+        bool had_selection = app.editor.sel_active;
+
         if (key == '\b') 
         {
             editor_backspace(&app.editor);
@@ -53,8 +220,36 @@ void app_handle_char(char key)
         }
         else 
         {
+            /* Auto-capitalize: uppercase the first letter of a sentence */
+            if (app.auto_capitalize && key >= 'a' && key <= 'z')
+            {
+                bool sentence_start = true;
+                size_t i = app.editor.cursor;
+
+                /* Walk back over whitespace to find the previous real character */
+                while (i > 0)
+                {
+                    char prev = app.editor.text[i - 1];
+
+                    if (prev == ' ' || prev == '\t')
+                    {
+                        i--;
+                        continue;
+                    }
+
+                    sentence_start = (prev == '.' || prev == '!' ||
+                                      prev == '?' || prev == '\n');
+                    break;
+                }
+
+                if (sentence_start)
+                {
+                    key = key - 'a' + 'A';
+                }
+            }
+
             editor_insert(&app.editor, key);
-            app.redraw_request = REDRAW_LINE;
+            app.redraw_request = had_selection ? REDRAW_FULL : REDRAW_LINE;
         }
     }
     else if (app.state == APP_STATE_SAVE_AS)
@@ -104,10 +299,90 @@ void app_handle_char(char key)
 /*------------------------------------------------------------------
  * Input Routing: Navigation / Special Keys
  *----------------------------------------------------------------*/
-void app_handle_nav(uint32_t nav_key)
+/* Move the cursor one visual line up/down. With word wrap on, a wrapped
+ * segment counts as its own line, so this follows what's on screen rather
+ * than what's between newlines. */
+static bool move_visual(Editor *editor, int direction)
 {
+    if (!app.word_wrap)
+    {
+        return (direction < 0) ? editor_move_up(editor) : editor_move_down(editor);
+    }
+
+    renderer_rebuild_layout(editor);
+    const Layout *lay = renderer_layout();
+
+    int line = layout_line_at(lay, editor->cursor);
+    int target = line + direction;
+
+    if (target < 0 || target >= lay->count)
+    {
+        return false;
+    }
+
+    size_t column = editor->cursor - lay->lines[line].start;
+    size_t target_len = lay->lines[target].end - lay->lines[target].start;
+
+    if (column > target_len)
+    {
+        column = target_len;
+    }
+
+    editor->cursor = lay->lines[target].start + column;
+    editor->status_dirty = true;
+    return true;
+}
+
+/* Starts or extends a selection when Shift is held, and drops it when
+ * it isn't. Call before any cursor movement. */
+static void nav_selection_prepare(bool shift)
+{
+    if (shift)
+    {
+        if (!app.editor.sel_active)
+        {
+            app.editor.sel_anchor = app.editor.cursor;
+            app.editor.sel_active = true;
+        }
+    }
+    else
+    {
+        editor_clear_selection(&app.editor);
+    }
+}
+
+void app_handle_nav(uint32_t nav_key, uint32_t modifiers)
+{
+    bool shift __attribute__((unused)) =
+        (modifiers & BSP_INPUT_MODIFIER_SHIFT) != 0;
+    bool ctrl __attribute__((unused)) =
+        (modifiers & BSP_INPUT_MODIFIER_CTRL) != 0;
+
     switch (app.state)
     {
+        /*==========================================================
+            MARKDOWN PREVIEW STATE
+        ==========================================================*/
+        case APP_STATE_MD_PREVIEW:
+            if (nav_key == BSP_INPUT_NAVIGATION_KEY_ESC ||
+                nav_key == BSP_INPUT_NAVIGATION_KEY_F2)
+            {
+                app.state = APP_STATE_EDITOR;
+                app.redraw_request = REDRAW_FULL;
+            }
+            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP)
+            {
+                app.md_scroll -= 3 * (app.font_size + 4);
+                if (app.md_scroll < 0) app.md_scroll = 0;
+                app.redraw_request = REDRAW_FULL;
+            }
+            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN)
+            {
+                app.md_scroll += 3 * (app.font_size + 4);
+                app.redraw_request = REDRAW_FULL;
+            }
+            break;
+
         /*==========================================================
             EDITOR STATE
         ==========================================================*/
@@ -125,19 +400,33 @@ void app_handle_nav(uint32_t nav_key)
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_LEFT)
             {
-                if (editor_move_left(&app.editor)) app.redraw_request = REDRAW_CURSOR;
+                nav_selection_prepare(shift);
+
+                bool moved = ctrl ? editor_move_word_left(&app.editor)
+                                  : editor_move_left(&app.editor);
+
+                if (moved)
+                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_CURSOR;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RIGHT)
             {
-                if (editor_move_right(&app.editor)) app.redraw_request = REDRAW_CURSOR;
+                nav_selection_prepare(shift);
+
+                bool moved = ctrl ? editor_move_word_right(&app.editor)
+                                  : editor_move_right(&app.editor);
+
+                if (moved)
+                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_CURSOR;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP)
             {
-                if (editor_move_up(&app.editor)) app.redraw_request = REDRAW_FULL;
+                nav_selection_prepare(shift);
+                if (move_visual(&app.editor, -1)) app.redraw_request = REDRAW_FULL;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN)
             {
-                if (editor_move_down(&app.editor)) app.redraw_request = REDRAW_FULL;
+                nav_selection_prepare(shift);
+                if (move_visual(&app.editor, 1)) app.redraw_request = REDRAW_FULL;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_VOLUME_DOWN)
             {
@@ -169,7 +458,7 @@ void app_handle_nav(uint32_t nav_key)
         case APP_STATE_MENU:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN) 
             {
-                if (app.menu_selected < 7) 
+                if (app.menu_selected < MENU_ITEM_COUNT - 1) 
                 {
                     app.prev_menu_selected = app.menu_selected;
                     app.menu_selected++;
@@ -189,6 +478,28 @@ void app_handle_nav(uint32_t nav_key)
             {
                 app.state = APP_STATE_EDITOR;
                 app.redraw_request = REDRAW_FULL;
+            }
+            else if (nav_key == BSP_INPUT_NAVIGATION_KEY_LEFT)
+            {
+                /* Left arrow cycles settings backwards */
+                if (app.menu_selected == 6) // Text Size
+                {
+                    cycle_font_size(-1);
+                    settings_save();
+                    app.redraw_request = REDRAW_FULL;
+                }
+                else if (app.menu_selected == 7) // Font
+                {
+                    app.font_index = (app.font_index + EDITOR_FONT_COUNT - 1) % EDITOR_FONT_COUNT;
+                    settings_save();
+                    app.redraw_request = REDRAW_FULL;
+                }
+                else if (app.menu_selected == 10) // Theme
+                {
+                    app.theme_index = (app.theme_index + THEME_COUNT - 1) % THEME_COUNT;
+                    settings_save();
+                    app.redraw_request = REDRAW_FULL;
+                }
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RETURN || nav_key == BSP_INPUT_NAVIGATION_KEY_RIGHT) 
             {
@@ -230,10 +541,34 @@ void app_handle_nav(uint32_t nav_key)
                         filesystem_load_directory(&app.filesystem, &app.browser);
                         app.state = APP_STATE_BROWSER;
                         break;
-                    case 6: // Back to Editor
+                    case 6: // Text Size (cycle 12 -> 16 -> 20 -> 24 -> 32)
+                        cycle_font_size(1);
+                        settings_save();
+                        break;
+                    case 7: // Font (cycle through PAX built-in fonts)
+                        app.font_index = (app.font_index + 1) % EDITOR_FONT_COUNT;
+                        settings_save();
+                        break;
+                    case 8: // Word Wrap (toggle, default on)
+                        app.word_wrap = !app.word_wrap;
+                        settings_save();
+                        break;
+                    case 9: // Auto Capitals (toggle, default off)
+                        app.auto_capitalize = !app.auto_capitalize;
+                        settings_save();
+                        break;
+                    case 10: // Theme (cycle through color themes)
+                        app.theme_index = (app.theme_index + 1) % THEME_COUNT;
+                        settings_save();
+                        break;
+                    case 11: // Markdown Preview
+                        app.state = APP_STATE_MD_PREVIEW;
+                        app.md_scroll = 0;
+                        break;
+                    case 12: // Back to Editor
                         app.state = APP_STATE_EDITOR;
                         break;
-                    case 7: // Quit to Launcher
+                    case 13: // Quit to Launcher
                         bsp_device_restart_to_launcher();
                         break;
                 }

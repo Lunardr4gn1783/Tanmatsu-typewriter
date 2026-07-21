@@ -58,6 +58,88 @@ void editor_clear(Editor *editor)
  * Text Editing
  *----------------------------------------------------------------*/
 
+
+/*------------------------------------------------------------------
+ * Selection & clipboard support
+ *----------------------------------------------------------------*/
+
+void editor_select_all(Editor *editor)
+{
+    if (editor == NULL) return;
+
+    editor->sel_anchor = 0;
+    editor->cursor     = editor->length;
+    editor->sel_active = (editor->length > 0);
+    editor->status_dirty = true;
+}
+
+void editor_clear_selection(Editor *editor)
+{
+    if (editor == NULL) return;
+    editor->sel_active = false;
+}
+
+bool editor_selection(const Editor *editor, size_t *start, size_t *end)
+{
+    if (editor == NULL || !editor->sel_active) return false;
+    if (editor->sel_anchor == editor->cursor) return false;
+
+    if (editor->sel_anchor < editor->cursor)
+    {
+        *start = editor->sel_anchor;
+        *end   = editor->cursor;
+    }
+    else
+    {
+        *start = editor->cursor;
+        *end   = editor->sel_anchor;
+    }
+    return true;
+}
+
+bool editor_delete_selection(Editor *editor)
+{
+    size_t start, end;
+
+    if (!editor_selection(editor, &start, &end)) return false;
+
+    memmove(
+        &editor->text[start],
+        &editor->text[end],
+        editor->length - end + 1); // +1 includes the null terminator
+
+    editor->length -= (end - start);
+    editor->cursor  = start;
+    editor->sel_active = false;
+
+    editor_mark_modified(editor);
+    return true;
+}
+
+size_t editor_insert_text(Editor *editor, const char *text, size_t length)
+{
+    if (editor == NULL || text == NULL) return 0;
+
+    editor_delete_selection(editor);
+
+    size_t room = (EDITOR_BUFFER_SIZE - 1) - editor->length;
+    if (length > room) length = room;
+    if (length == 0) return 0;
+
+    memmove(
+        &editor->text[editor->cursor + length],
+        &editor->text[editor->cursor],
+        editor->length - editor->cursor + 1);
+
+    memcpy(&editor->text[editor->cursor], text, length);
+
+    editor->cursor += length;
+    editor->length += length;
+
+    editor_mark_modified(editor);
+    return length;
+}
+
 bool editor_insert(Editor *editor, char c)
 {
     if (editor == NULL)
@@ -65,13 +147,16 @@ bool editor_insert(Editor *editor, char c)
         return false;
     }
 
-    if (editor->length >= (EDITOR_BUFFER_SIZE - 1))
+    /* Only accept printable characters and newlines */
+    if (c != '\n' && (c < 32 || c > 126))
     {
         return false;
     }
 
-    /* Only accept printable characters and newlines */
-    if (c != '\n' && (c < 32 || c > 126))
+    /* Typing replaces the current selection */
+    editor_delete_selection(editor);
+
+    if (editor->length >= (EDITOR_BUFFER_SIZE - 1))
     {
         return false;
     }
@@ -96,6 +181,12 @@ bool editor_backspace(Editor *editor)
     if (editor == NULL)
     {
         return false;
+    }
+
+    /* With a selection, backspace deletes the selection */
+    if (editor_delete_selection(editor))
+    {
+        return true;
     }
 
     if (editor->cursor == 0)
@@ -264,9 +355,49 @@ bool editor_move_down(Editor *editor)
     return true;
 }
 
+static bool is_word_char(char c)
+{
+    return (c >= 'a' && c <= 'z') ||
+           (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') ||
+           c == '_';
+}
+
+bool editor_move_word_left(Editor *editor)
+{
+    if (editor == NULL || editor->cursor == 0) return false;
+
+    size_t p = editor->cursor;
+
+    /* Skip any separators directly before the cursor */
+    while (p > 0 && !is_word_char(editor->text[p - 1])) p--;
+
+    /* Then skip the word itself */
+    while (p > 0 && is_word_char(editor->text[p - 1])) p--;
+
+    editor->cursor = p;
+    editor->status_dirty = true;
+    return true;
+}
+
+bool editor_move_word_right(Editor *editor)
+{
+    if (editor == NULL || editor->cursor >= editor->length) return false;
+
+    size_t p = editor->cursor;
+
+    while (p < editor->length && !is_word_char(editor->text[p])) p++;
+    while (p < editor->length && is_word_char(editor->text[p])) p++;
+
+    editor->cursor = p;
+    editor->status_dirty = true;
+    return true;
+}
+
 bool editor_move_home(Editor *editor)
 {
     if (editor == NULL) return false;
+    editor_clear_selection(editor);
     editor->cursor = 0;
     editor->status_dirty = true;
     return true;
@@ -275,6 +406,7 @@ bool editor_move_home(Editor *editor)
 bool editor_move_end(Editor *editor)
 {
     if (editor == NULL) return false;
+    editor_clear_selection(editor);
     editor->cursor = editor->length;
     editor->status_dirty = true;
     return true;
