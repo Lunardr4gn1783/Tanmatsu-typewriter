@@ -2,7 +2,7 @@ PORT ?= /dev/ttyACM0
 
 IDF_PATH ?= $(shell cat .IDF_PATH 2>/dev/null || echo `pwd`/esp-idf)
 IDF_TOOLS_PATH ?= $(shell cat .IDF_TOOLS_PATH 2>/dev/null || echo `pwd`/esp-idf-tools)
-IDF_BRANCH ?= v5.5.1
+IDF_BRANCH ?= v5.5.2
 #IDF_COMMIT ?= aaebc374676621980878789c49d239232ea714c5
 IDF_EXPORT_QUIET ?= 1
 IDF_GITHUB_ASSETS ?= dl.espressif.com/github_assets
@@ -22,8 +22,6 @@ SDKCONFIG ?= sdkconfig_$(DEVICE)
 
 ifeq ($(DEVICE), tanmatsu)
 IDF_TARGET ?= esp32p4
-else ifeq ($(DEVICE), konsool)
-IDF_TARGET ?= esp32p4
 else ifeq ($(DEVICE), esp32-p4-function-ev-board)
 IDF_TARGET ?= esp32p4
 else ifeq ($(DEVICE), mch2022)
@@ -34,8 +32,10 @@ else ifeq ($(DEVICE), hackerhotel-2024)
 IDF_TARGET ?= esp32c6
 else ifeq ($(DEVICE), heltecv3)
 IDF_TARGET ?= esp32s3
+else ifeq ($(DEVICE), hackaday2025)
+IDF_TARGET ?= esp32s3
 else
-$(warning "Unknown device, defaulting to ESP32 $(DEVICE)")
+$(warning "Unknown device, defaulting to ESP32")
 IDF_TARGET ?= esp32
 endif
 
@@ -112,6 +112,8 @@ menuconfig:
 clean:
 	rm -rf $(BUILD)
 	rm -f .submodules_update_done
+	rm -rf managed_components
+	rm -f sdkconfig_*
 
 .PHONY: fullclean
 fullclean: clean
