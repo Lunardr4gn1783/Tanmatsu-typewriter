@@ -17,6 +17,10 @@ typedef struct
     /* Cursor position */
     size_t cursor;
 
+    /* Selection: anchor..cursor when active */
+    size_t sel_anchor;
+    bool   sel_active;
+
     /* Current page offset */
     size_t file_offset;
 
@@ -61,6 +65,26 @@ void editor_get_text(
  * Cursor
  *----------------------------------------------------------------*/
 
+/*------------------------------------------------------------------
+ * Selection & clipboard support
+ *----------------------------------------------------------------*/
+
+void editor_select_all(Editor *editor);
+
+void editor_clear_selection(Editor *editor);
+
+/* Returns true and fills start/end (start < end) when a non-empty
+ * selection exists. */
+bool editor_selection(const Editor *editor, size_t *start, size_t *end);
+
+/* Deletes the selected text; returns true when something was removed. */
+bool editor_delete_selection(Editor *editor);
+
+/* Inserts a block of text at the cursor (replacing any selection),
+ * limited by the remaining buffer capacity. Returns chars inserted. */
+size_t editor_insert_text(Editor *editor, const char *text, size_t length);
+
+
 bool editor_move_left(Editor *editor);
 
 bool editor_move_right(Editor *editor);
@@ -70,6 +94,12 @@ bool editor_move_up(Editor *editor);
 
 bool editor_move_down(Editor *editor);
 // ------------------------------
+
+/* Word-wise movement (Ctrl+Left / Ctrl+Right). These do NOT touch the
+ * selection, so the caller can extend a selection with them. */
+bool editor_move_word_left(Editor *editor);
+
+bool editor_move_word_right(Editor *editor);
 
 bool editor_move_home(Editor *editor);
 

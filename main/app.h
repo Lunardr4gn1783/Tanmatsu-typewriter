@@ -10,7 +10,7 @@
 #include "crypto.h"
 
 // Total number of items in the main menu (app.c + renderer.c stay in sync)
-#define MENU_ITEM_COUNT 11
+#define MENU_ITEM_COUNT 14
 
 // The core application states
 typedef enum
@@ -20,7 +20,8 @@ typedef enum
     APP_STATE_BROWSER,
     APP_STATE_SAVE_AS,
     APP_STATE_PASSWORD,
-    APP_STATE_CRYPTO_SELECT
+    APP_STATE_CRYPTO_SELECT,
+    APP_STATE_MD_PREVIEW
 
 } AppState;
 
@@ -72,6 +73,9 @@ typedef struct
     int  font_size;         // Editor text size in pixels
     bool auto_capitalize;   // Capitalize first letter of sentences (default: off)
     int  theme_index;       // Active color theme (see theme.h)
+    int  font_index;        // Active editor font (see renderer.c)
+    bool word_wrap;         // Wrap long lines at word boundaries (default: on)
+    int  md_scroll;         // Vertical scroll offset in the markdown preview
 
     RedrawType redraw_request;
 
@@ -85,6 +89,12 @@ void app_init(void);
 
 void app_handle_char(char key);
 
-void app_handle_nav(uint32_t key);
+/* Editor shortcuts: a/c/x/v (select all, copy, cut, paste), m (markdown) */
+void app_handle_shortcut(char key);
+
+/* Switch between the editor and the markdown preview */
+void app_toggle_md_preview(void);
+
+void app_handle_nav(uint32_t nav_key, uint32_t modifiers);
 
 #endif

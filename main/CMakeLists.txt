@@ -9,6 +9,7 @@ idf_component_register(
 		"main.c"
 		"app.c"
 		"theme.c"
+		"layout.c"
 		"browser.c"
         "editor.c"
         "filesystem.c"
