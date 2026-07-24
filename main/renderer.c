@@ -71,6 +71,11 @@ typedef struct
     int scroll_x;
     int scroll_line;
 
+    /* Last known cursor screen position for fast blink updates */
+    int cursor_screen_x;
+    int cursor_screen_y;
+    bool cursor_pos_valid;
+
 } renderer_t;
 
 static renderer_t renderer;
@@ -79,6 +84,14 @@ static renderer_t renderer;
  * cursor positioning and up/down navigation all read from this, so they
  * can never disagree about where a line ends. */
 static Layout editor_layout;
+
+/* Cache: skip layout rebuild when editor content hasn't changed */
+static const char *layout_text_ptr  = NULL;
+static size_t      layout_text_len  = 0;
+static bool        layout_wrap      = false;
+static int         layout_width     = 0;
+static int         layout_font_size = 0;
+static int         layout_font_idx  = 0;
 
 static void draw_editor(const Editor *editor);
 
@@ -105,11 +118,30 @@ static int layout_measure(const char *text, size_t length)
 
 void renderer_rebuild_layout(const Editor *editor)
 {
+    int w = editor_text_width();
+
+    if (editor->text == layout_text_ptr &&
+        editor->length == layout_text_len &&
+        app.word_wrap == layout_wrap &&
+        w == layout_width &&
+        app.font_size == layout_font_size &&
+        app.font_index == layout_font_idx)
+    {
+        return; /* nothing changed */
+    }
+
+    layout_text_ptr  = editor->text;
+    layout_text_len  = editor->length;
+    layout_wrap      = app.word_wrap;
+    layout_width     = w;
+    layout_font_size = app.font_size;
+    layout_font_idx  = app.font_index;
+
     layout_build(
         &editor_layout,
         editor,
         app.word_wrap,
-        editor_text_width(),
+        w,
         layout_measure);
 }
 
@@ -155,6 +187,8 @@ static void renderer_clear(void)
     pax_background(
         &renderer.fb,
         THEME->bg);
+
+    renderer.cursor_pos_valid = false;
 }
 
 /*----------------------------------------------------------*/
@@ -199,9 +233,15 @@ static void renderer_compute_scroll(const Editor *editor)
     /* With word wrap on, nothing ever runs past the right edge. */
     if (app.word_wrap)
     {
-        renderer.scroll_x = 0;
+        if (renderer.scroll_x != 0)
+        {
+            renderer.scroll_x = 0;
+            renderer.cursor_pos_valid = false;
+        }
         return;
     }
+
+    int old_scroll = renderer.scroll_x;
 
     renderer_rebuild_layout(editor);
     const Layout *lay = renderer_layout();
@@ -229,6 +269,11 @@ static void renderer_compute_scroll(const Editor *editor)
     if (renderer.scroll_x < 0)
     {
         renderer.scroll_x = 0;
+    }
+
+    if (renderer.scroll_x != old_scroll)
+    {
+        renderer.cursor_pos_valid = false;
     }
 }
 
@@ -368,6 +413,10 @@ static void draw_editor(const Editor *editor)
             cursor_y,
             CURSOR_WIDTH,
             font_size);
+
+        renderer.cursor_screen_x = cursor_x;
+        renderer.cursor_screen_y = cursor_y;
+        renderer.cursor_pos_valid = true;
     }
 
     draw_status_bar(editor);
@@ -448,6 +497,14 @@ static void renderer_update_cursor_only(const Editor *editor)
             y,
             CURSOR_WIDTH,
             font_size);
+
+        renderer.cursor_screen_x = cursor_x;
+        renderer.cursor_screen_y = y;
+        renderer.cursor_pos_valid = true;
+    }
+    else
+    {
+        renderer.cursor_pos_valid = false;
     }
 }
 
@@ -1123,7 +1180,7 @@ static void draw_help_bar(const AppContext *context)
     switch (context->state)
     {
         case APP_STATE_EDITOR:
-            text = "ESC:Menu Shift+Arr:Select Ctrl:A/C/X/V/M";
+            text = "ESC:Menu Shift+Arr:Select Ctrl:A/C/X/V/M Su+Shift:Caps";
             break;
         case APP_STATE_MENU:
             text = "Up/Dn:Nav Enter:Sel L/R:Adjust ESC:Back";
@@ -1206,6 +1263,7 @@ bool renderer_init(void)
     renderer.display_h = pax_buf_get_height(&renderer.fb);
 
     renderer.cursor_visible = true;
+    renderer.cursor_pos_valid = false;
 
     return true;
 }
@@ -1220,6 +1278,28 @@ void renderer_cursor_blink(void)
 
 /*----------------------------------------------------------*/
 
+/* Fast cursor blink: only erases/redraws the cursor rectangle
+ * at the last known position. No layout rebuild, no text redraw. */
+static void renderer_blink_cursor(void)
+{
+    if (!renderer.cursor_pos_valid) return;
+
+    int x = renderer.cursor_screen_x;
+    int y = renderer.cursor_screen_y;
+    int h = app.font_size;
+
+    /* Erase the old cursor */
+    pax_simple_rect(&renderer.fb, THEME->bg, x, y, CURSOR_WIDTH, h);
+
+    /* Draw the new cursor if visible */
+    if (renderer.cursor_visible)
+    {
+        pax_simple_rect(&renderer.fb, THEME->fg, x, y, CURSOR_WIDTH, h);
+    }
+}
+
+/*----------------------------------------------------------*/
+
 void renderer_render(AppContext *context)
 {
     if (context->redraw_request == REDRAW_NONE) 
@@ -1227,13 +1307,22 @@ void renderer_render(AppContext *context)
         return;
     }
 
-    // --- FAST PATH: Cursor Blink Only / Line Changed ---
-    if ((context->redraw_request == REDRAW_CURSOR || context->redraw_request == REDRAW_LINE) && context->state == APP_STATE_EDITOR)
+    // --- FAST PATH: Cursor Blink Only (no text change) ---
+    if (context->redraw_request == REDRAW_CURSOR && context->state == APP_STATE_EDITOR)
+    {
+        renderer_blink_cursor();
+        renderer_present_internal();
+        
+        context->redraw_request = REDRAW_NONE;
+        return;
+    }
+
+    // --- FAST PATH: Line Changed ---
+    if (context->redraw_request == REDRAW_LINE && context->state == APP_STATE_EDITOR)
     {
         renderer_update_cursor_only(&context->editor);
         renderer_present_internal();
         
-        // Clear the flag and exit
         context->redraw_request = REDRAW_NONE;
         return;
     }

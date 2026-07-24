@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_log.h"
 #include "config.h"
@@ -289,6 +290,13 @@ bool filesystem_load_directory(
     }
     
     closedir(dir);
+
+    /* If we had a previously active file in this directory, highlight it */
+    if (fs->active_file[0] != '\0')
+    {
+        browser_select_by_path(browser, fs->active_file);
+    }
+
     return true;
 }
 
@@ -390,6 +398,10 @@ bool filesystem_save_file(
         }
 
         size_t written = fwrite(editor->text, 1, editor->length, f);
+
+        /* Truncate any leftover bytes from a previous longer save */
+        ftruncate(fileno(f), ftell(f));
+
         fclose(f);
 
         if (written != editor->length)

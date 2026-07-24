@@ -57,4 +57,11 @@ bool browser_move_up(Browser *browser);
 
 bool browser_move_down(Browser *browser);
 
+
+/* Selection */
+
+/* Select the entry whose full_path matches path, and scroll it into view.
+ * Returns true if a match was found. */
+bool browser_select_by_path(Browser *browser, const char *path);
+
 #endif

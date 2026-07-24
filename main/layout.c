@@ -51,30 +51,22 @@ void layout_build(
 
             while (line_start <= hard_end)
             {
-                /* Grow the line one character at a time, remembering the
-                 * last position where a break would be legal (after a
-                 * space). This keeps whole words intact. */
-                size_t last_space = 0;
-                size_t i          = line_start;
+                size_t total = hard_end - line_start;
 
-                while (i < hard_end)
+                /* Binary search: find the maximum number of chars that fit */
+                size_t lo = 0, hi = total;
+                while (lo < hi)
                 {
-                    size_t candidate = (i - line_start) + 1;
-
-                    if (measure(editor->text + line_start, candidate) > max_width)
-                    {
-                        break;
-                    }
-
-                    if (editor->text[i] == ' ')
-                    {
-                        last_space = i;
-                    }
-
-                    i++;
+                    size_t mid = lo + (hi - lo + 1) / 2;
+                    if (measure(editor->text + line_start, mid) <= max_width)
+                        lo = mid;
+                    else
+                        hi = mid - 1;
                 }
 
-                if (i >= hard_end)
+                size_t fit = lo;
+
+                if (fit >= total)
                 {
                     /* The remainder fits on one line */
                     layout_push(layout, line_start, hard_end,
@@ -83,18 +75,28 @@ void layout_build(
                     break;
                 }
 
-                /* Doesn't fit: prefer breaking after the last space so we
-                 * don't split a word. Fall back to a hard character break
-                 * for a single word longer than the screen. */
+                /* Find the last space in the fitting portion for word break */
+                size_t last_space = 0;
+                for (size_t j = line_start; j < line_start + fit; j++)
+                {
+                    if (editor->text[j] == ' ')
+                    {
+                        last_space = j;
+                    }
+                }
+
+                /* Prefer breaking after the last space so we don't split a
+                 * word. Fall back to a hard character break for a single
+                 * word longer than the screen. */
                 size_t break_at;
 
                 if (last_space > line_start)
                 {
-                    break_at = last_space + 1;  // keep the space on this line
+                    break_at = last_space + 1;
                 }
                 else
                 {
-                    break_at = (i > line_start) ? i : line_start + 1;
+                    break_at = (fit > 0) ? line_start + fit : line_start + 1;
                 }
 
                 layout_push(layout, line_start, break_at, false);
@@ -130,21 +132,31 @@ void layout_build(
 
 int layout_line_at(const Layout *layout, size_t position)
 {
-    for (int i = 0; i < layout->count; i++)
+    /* Binary search: lines are sorted by start position */
+    int lo = 0, hi = layout->count - 1;
+
+    while (lo < hi)
     {
-        if (position >= layout->lines[i].start && position <= layout->lines[i].end)
+        int mid = lo + (hi - lo + 1) / 2;
+        if (layout->lines[mid].start <= position)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+
+    if (lo >= 0 && lo < layout->count)
+    {
+        int i = lo;
+        /* A position sitting exactly on a soft break belongs to the
+         * next line, so the cursor appears where typing continues. */
+        if (position == layout->lines[i].end &&
+            !layout->lines[i].hard_break &&
+            i + 1 < layout->count &&
+            layout->lines[i + 1].start == position)
         {
-            /* A position sitting exactly on a soft break belongs to the
-             * next line, so the cursor appears where typing continues. */
-            if (position == layout->lines[i].end &&
-                !layout->lines[i].hard_break &&
-                i + 1 < layout->count &&
-                layout->lines[i + 1].start == position)
-            {
-                continue;
-            }
-            return i;
+            return i + 1;
         }
+        return i;
     }
 
     return (layout->count > 0) ? layout->count - 1 : 0;

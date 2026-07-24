@@ -210,7 +210,7 @@ void app_handle_char(char key)
         if (key == '\b') 
         {
             editor_backspace(&app.editor);
-            app.redraw_request = REDRAW_FULL;
+            app.redraw_request = REDRAW_LINE;
         } 
         else if (key == '\t')
         {
@@ -406,7 +406,7 @@ void app_handle_nav(uint32_t nav_key, uint32_t modifiers)
                                   : editor_move_left(&app.editor);
 
                 if (moved)
-                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_CURSOR;
+                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_LINE;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_RIGHT)
             {
@@ -416,7 +416,7 @@ void app_handle_nav(uint32_t nav_key, uint32_t modifiers)
                                   : editor_move_right(&app.editor);
 
                 if (moved)
-                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_CURSOR;
+                    app.redraw_request = shift ? REDRAW_FULL : REDRAW_LINE;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP)
             {
@@ -458,21 +458,19 @@ void app_handle_nav(uint32_t nav_key, uint32_t modifiers)
         case APP_STATE_MENU:
             if (nav_key == BSP_INPUT_NAVIGATION_KEY_DOWN) 
             {
-                if (app.menu_selected < MENU_ITEM_COUNT - 1) 
-                {
-                    app.prev_menu_selected = app.menu_selected;
-                    app.menu_selected++;
-                    app.redraw_request = REDRAW_MENU;
-                }
+                app.prev_menu_selected = app.menu_selected;
+                app.menu_selected++;
+                if (app.menu_selected >= MENU_ITEM_COUNT)
+                    app.menu_selected = 0;
+                app.redraw_request = REDRAW_MENU;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_UP) 
             {
-                if (app.menu_selected > 0) 
-                {
-                    app.prev_menu_selected = app.menu_selected;
-                    app.menu_selected--;
-                    app.redraw_request = REDRAW_MENU;
-                }
+                app.prev_menu_selected = app.menu_selected;
+                app.menu_selected--;
+                if (app.menu_selected < 0)
+                    app.menu_selected = MENU_ITEM_COUNT - 1;
+                app.redraw_request = REDRAW_MENU;
             }
             else if (nav_key == BSP_INPUT_NAVIGATION_KEY_ESC || nav_key == BSP_INPUT_NAVIGATION_KEY_F2) 
             {

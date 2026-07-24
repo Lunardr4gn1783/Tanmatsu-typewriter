@@ -126,3 +126,33 @@ bool browser_move_down(Browser *browser)
 
     return true;
 }
+
+bool browser_select_by_path(Browser *browser, const char *path)
+{
+    if (!browser || !path || path[0] == '\0')
+    {
+        return false;
+    }
+
+    for (int i = 0; i < browser->count; i++)
+    {
+        if (strcmp(browser->entries[i].full_path, path) == 0)
+        {
+            browser->selected = i;
+
+            /* Scroll so the selected item is visible */
+            if (browser->selected < browser->scroll)
+            {
+                browser->scroll = browser->selected;
+            }
+            else if (browser->selected >= browser->scroll + browser->visible_items)
+            {
+                browser->scroll = browser->selected - browser->visible_items + 1;
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
